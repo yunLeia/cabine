@@ -13,6 +13,9 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "permissions": [
     "sidePanel",
     "contextMenus",

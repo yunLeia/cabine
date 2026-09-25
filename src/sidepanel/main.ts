@@ -1,17 +1,20 @@
 import { CATEGORIES, type Category, type Garment } from '../shared/types';
 import { SAMPLE_CANDIDATES, SEED_CLOSET } from '../shared/seed';
 import { CAPTURE_KEY, type Capture } from '../shared/capture';
+import { deleteImage, getImage } from '../shared/images';
 import { renderMannequin } from './mannequin';
 import { renderCloset } from './closet';
 
 interface State {
   outfit: Partial<Record<Category, string>>; // closet garment id worn per slot (in memory until M1.5)
   capture: Capture | null; // mirror of chrome.storage.local[CAPTURE_KEY]; never set directly
+  processed: { imageId: string; url: string } | null; // object URL for the capture's IndexedDB image
 }
 
 const state: State = {
   outfit: { top: 'sweater-puff-grey', bottom: 'jeans-dark-highrise' },
   capture: null,
+  processed: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -22,7 +25,32 @@ const CATEGORY_LABEL: Record<Category, string> = { top: 'Top', bottom: 'Bottom',
 function candidate(): Garment | null {
   const c = state.capture;
   if (!c?.category) return null;
-  return { id: c.id, source: 'captured', name: c.title, category: c.category, imageSrc: c.srcUrl };
+  return { id: c.id, source: 'captured', name: c.title, category: c.category, imageSrc: captureImageSrc(c) };
+}
+
+// The cleaned copy once it's loaded; the retailer's original until then.
+function captureImageSrc(c: Capture): string {
+  return state.processed && state.processed.imageId === c.imageId ? state.processed.url : c.srcUrl;
+}
+
+// Blobs can't go in an <img> directly: load it from IndexedDB and give it a
+// temporary object URL, revoking the previous one so it doesn't leak.
+async function syncProcessedImage(): Promise<void> {
+  const imageId = state.capture?.imageId;
+  if (state.processed?.imageId === imageId) return;
+  if (state.processed) URL.revokeObjectURL(state.processed.url);
+  state.processed = null;
+  const blob = imageId ? await getImage(imageId) : undefined;
+  if (blob && state.capture?.imageId === imageId) {
+    state.processed = { imageId: imageId!, url: URL.createObjectURL(blob) };
+  }
+}
+
+function statusText(c: Capture): string {
+  if (c.status === 'processing') return 'Cleaning up the image…';
+  if (c.status === 'failed') return `Showing the original: ${c.error ?? 'processing failed'}`;
+  if (c.stats && c.stats.bgRemoved < 0.02) return 'No plain background found, so it was left as is';
+  return '';
 }
 
 // The candidate always owns its category's slot. Its closet counterpart stays
@@ -63,7 +91,7 @@ function renderCandidate(): void {
   if (!c) return root.replaceChildren();
 
   const img = document.createElement('img');
-  img.src = c.srcUrl;
+  img.src = captureImageSrc(c);
   img.alt = '';
 
   const text = document.createElement('div');
@@ -86,12 +114,22 @@ function renderCandidate(): void {
     chips.append(chip);
   }
   text.append(label, name, chips);
+  const status = statusText(c);
+  if (status) {
+    const note = document.createElement('span');
+    note.className = 'candidate-status';
+    note.textContent = status;
+    text.append(note);
+  }
 
   const clear = document.createElement('button');
   clear.type = 'button';
   clear.className = 'candidate-clear';
   clear.textContent = 'Remove';
-  clear.addEventListener('click', () => saveCapture(null));
+  clear.addEventListener('click', () => {
+    if (c.imageId) void deleteImage(c.imageId);
+    saveCapture(null);
+  });
 
   root.replaceChildren(img, text, clear);
 }
@@ -119,19 +157,22 @@ for (const sample of SAMPLE_CANDIDATES) {
       title: sample.name,
       category: sample.category,
       capturedAt: Date.now(),
+      status: 'ready',
     }),
   );
   $('dev-samples').append(btn);
 }
 
+async function setCapture(c: Capture | undefined): Promise<void> {
+  state.capture = c ?? null;
+  render(); // show the change immediately (original image while processing)
+  await syncProcessedImage();
+  render(); // then swap in the processed image if there is one
+}
+
 chrome.storage.local.onChanged.addListener((changes) => {
-  if (!(CAPTURE_KEY in changes)) return;
-  state.capture = (changes[CAPTURE_KEY].newValue as Capture | undefined) ?? null;
-  render();
+  if (CAPTURE_KEY in changes) void setCapture(changes[CAPTURE_KEY].newValue as Capture | undefined);
 });
 
 render();
-chrome.storage.local.get(CAPTURE_KEY).then((items) => {
-  state.capture = (items[CAPTURE_KEY] as Capture | undefined) ?? null;
-  render();
-});
+chrome.storage.local.get(CAPTURE_KEY).then((items) => setCapture(items[CAPTURE_KEY] as Capture | undefined));

@@ -6,11 +6,21 @@ import type { Category } from './types';
 // lost. The panel reads the key on load and watches it with onChanged.
 export const CAPTURE_KEY = 'capture';
 
+export interface NormalizeStats {
+  bgRemoved: number; // fraction of pixels removed as background (0 = none found)
+  width: number; // trimmed size, px
+  height: number;
+}
+
 export interface Capture {
   id: string;
-  srcUrl: string; // M1.2: the retailer's own URL. M1.3 stores a downloaded copy.
+  srcUrl: string; // the retailer's URL, shown until the processed copy is ready
   pageUrl?: string;
   title: string;
   category?: Category; // unset until the user picks one (keyword guess in M1.4)
   capturedAt: number;
+  status: 'processing' | 'ready' | 'failed';
+  imageId?: string; // IndexedDB key of the processed image, once ready
+  stats?: NormalizeStats;
+  error?: string;
 }
