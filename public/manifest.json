@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Cabine",
+  "version": "0.1.0",
+  "description": "Keep your wardrobe beside every online store.",
+  "action": { "default_title": "Open Cabine" },
+  "side_panel": { "default_path": "sidepanel/index.html" },
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "permissions": ["sidePanel"]
+}
