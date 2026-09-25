@@ -1,4 +1,4 @@
-import { CATEGORIES, type Category, type Garment } from '../shared/types';
+import { CATEGORIES, type Category, type Garment, type PlacementAdjust } from '../shared/types';
 import { SAMPLE_CANDIDATES, SEED_CLOSET } from '../shared/seed';
 import { CAPTURE_KEY, type Capture } from '../shared/capture';
 import { deleteImage, getImage } from '../shared/images';
@@ -25,7 +25,14 @@ const CATEGORY_LABEL: Record<Category, string> = { top: 'Top', bottom: 'Bottom',
 function candidate(): Garment | null {
   const c = state.capture;
   if (!c?.category) return null;
-  return { id: c.id, source: 'captured', name: c.title, category: c.category, imageSrc: captureImageSrc(c) };
+  return {
+    id: c.id,
+    source: 'captured',
+    name: c.title,
+    category: c.category,
+    imageSrc: captureImageSrc(c),
+    adjust: c.adjust,
+  };
 }
 
 // The cleaned copy once it's loaded; the retailer's original until then.
@@ -84,6 +91,51 @@ function saveCapture(c: Capture | null): void {
   void (c ? chrome.storage.local.set({ [CAPTURE_KEY]: c }) : chrome.storage.local.remove(CAPTURE_KEY));
 }
 
+// Fit controls: nudge the candidate inside its slot. Product photos are
+// cropped and proportioned differently, so automatic placement can't be right
+// every time (docs/decisions.md D8, D12).
+const FIT_STEPS: { label: string; aria: string; apply: (a: Required<PlacementAdjust>) => PlacementAdjust }[] = [
+  { label: '−', aria: 'Smaller', apply: (a) => ({ ...a, scale: Math.max(0.4, a.scale - 0.05) }) },
+  { label: '+', aria: 'Bigger', apply: (a) => ({ ...a, scale: Math.min(1.8, a.scale + 0.05) }) },
+  { label: '↑', aria: 'Move up', apply: (a) => ({ ...a, dy: a.dy - 0.02 }) },
+  { label: '↓', aria: 'Move down', apply: (a) => ({ ...a, dy: a.dy + 0.02 }) },
+];
+
+function nudge(apply: (a: Required<PlacementAdjust>) => PlacementAdjust | undefined): void {
+  // Read the latest capture, not the one captured when the buttons were drawn:
+  // fast repeated clicks can land before the storage round-trip re-renders.
+  const c = state.capture;
+  if (!c) return;
+  const { scale = 1, dx = 0, dy = 0 } = c.adjust ?? {};
+  saveCapture({ ...c, adjust: apply({ scale, dx, dy }) });
+}
+
+function renderFitControls(c: Capture): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'candidate-fit';
+  const label = document.createElement('span');
+  label.textContent = 'Fit';
+  row.append(label);
+  for (const step of FIT_STEPS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = step.label;
+    btn.title = step.aria;
+    btn.setAttribute('aria-label', step.aria);
+    btn.addEventListener('click', () => nudge(step.apply));
+    row.append(btn);
+  }
+  if (c.adjust) {
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'candidate-fit-reset';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => nudge(() => undefined));
+    row.append(reset);
+  }
+  return row;
+}
+
 function renderCandidate(): void {
   const root = $('candidate');
   const c = state.capture;
@@ -114,6 +166,7 @@ function renderCandidate(): void {
     chips.append(chip);
   }
   text.append(label, name, chips);
+  if (c.category) text.append(renderFitControls(c));
   const status = statusText(c);
   if (status) {
     const note = document.createElement('span');

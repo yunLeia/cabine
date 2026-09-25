@@ -1,4 +1,4 @@
-import type { Category } from './types';
+import type { Category, PlacementAdjust } from './types';
 
 // The latest "Try in Cabine" capture, handed from the service worker to the side
 // panel through chrome.storage.local rather than a message: the panel may be
@@ -18,6 +18,7 @@ export interface Capture {
   pageUrl?: string;
   title: string;
   category?: Category; // unset until the user picks one (keyword guess in M1.4)
+  adjust?: PlacementAdjust; // manual fit, set with the panel's fit controls
   capturedAt: number;
   status: 'processing' | 'ready' | 'failed';
   imageId?: string; // IndexedDB key of the processed image, once ready

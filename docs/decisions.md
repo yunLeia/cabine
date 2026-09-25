@@ -111,3 +111,12 @@ docs/
 - **Why:** the side panel is the core UX (the shop page and the closet side by side), and Chrome is where users and reviewers will run it. A fallback adds a second UI to maintain before the core loop is proven.
 - **Tradeoff:** Arc users (including the developer) have to switch browsers to use Cabine.
 - **Revisit when:** testers in M2 use browsers without a side panel. The separate-window fallback is about 10 lines; the injected panel is the robust but expensive option.
+
+## D12. Manual fit controls for the candidate
+
+- **Context:** in M1.3 testing on real stores, captured garments didn't fit the mannequin. The dress form stays in the image (D10), so its neck and torso are inside the trimmed box. The form's neck gets pinned to the mannequin's shoulders, and the garment comes out too small and too low. Separately, bounding-box width is not shoulder width (D8).
+- **Options:** manual fit controls · clothes-segmentation model (SegFormer trained on clothing classes, via Transformers.js) · build the offline form remover (D10) into the pipeline · cloud clothing-segmentation API
+- **Why:** manual controls unblock testing today, work for any image, and stay useful after better cleanup, because automatic placement can't be right for every crop. The candidate card has Smaller / Bigger / Up / Down / Reset, saved as `capture.adjust` in storage.
+- **Not chosen yet:** generic background removal (Apple Vision, remove.bg, RMBG) can't fix this: it treats form + garment as one subject. A clothes-segmentation model labels pixels as top/pants/skirt, so it could remove the form *and* give the category (M1.4). It's unproven on dress-form photos; it needs a trial on the seed photos first.
+- **Tradeoff:** the user fixes each capture by hand. The dress form stays visible.
+- **Revisit when:** M1.6 shows how many captures need fixing. Log how many clicks each capture needed.
