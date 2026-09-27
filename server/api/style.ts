@@ -198,12 +198,20 @@ export function createHandler(getDeps: () => Deps) {
 // ~15 s instead of ~40 s, 1 credit per look, and more faithful (D16).
 
 const FASHN = { model: 'tryon-max', generation_mode: 'fast', resolution: '1k' } as const;
-const PROMPT_VERSION = 3;
+const PROMPT_VERSION = 4;
 
 const KEEP_MANNEQUIN =
   'Keep the mannequin exactly as it is: a white matte headless store mannequin with no skin, no head and no hair. Do not turn it into a person. Keep the plain white background with no shadows.';
 const FAITHFUL =
   'Reproduce every garment exactly: color, material, texture, silhouette, length, sleeves, neckline, buttons, pockets and collar. Keep full sleeves even over another layer. Do not add, remove or redesign any details.';
+// What each category means, and what else a store photo may show that must be left out.
+const KIND: Record<Category, { noun: string; examples: string; others: string }> = {
+  top: { noun: 'top', examples: 'shirt, blouse, knit, tee or camisole', others: 'bottoms, outerwear, dresses and shoes' },
+  bottom: { noun: 'bottom', examples: 'trousers, jeans, shorts or skirt', others: 'tops, sweaters, outerwear and shoes' },
+  dress: { noun: 'dress', examples: 'dress or jumpsuit', others: 'outerwear, shoes and accessories' },
+  outerwear: { noun: 'outerwear', examples: 'coat, jacket or blazer', others: 'the clothes worn under it, bottoms and shoes' },
+  shoes: { noun: 'shoes', examples: 'shoes, boots or sneakers', others: 'all clothing' },
+};
 const WEAR: Record<Category, string> = {
   bottom: 'the bottom',
   dress: 'the dress',
@@ -213,16 +221,29 @@ const WEAR: Record<Category, string> = {
 };
 const POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
 
+// Store photos often show a whole outfit on a model. Each panel therefore says
+// which single garment to take and what to leave out, and the whole prompt says
+// the mannequin wears nothing else: a bottom picked from a full-body shot must
+// not bring the model's top along with it (seen in production).
 export function fashnPrompt(items: Item[]): string {
-  const layout = items
-    .map((it, i) => `${POSITIONS[i]} from the left, the ${it.category}${it.title ? ` ("${it.title}")` : ''}`)
-    .join('; ');
-  const count = items.length === 1 ? 'one garment' : `${items.length} separate garments side by side`;
+  const panels = items
+    .map((it, i) => {
+      const k = KIND[it.category];
+      // The title is the store's product name, which may be a different garment
+      // than the one the shopper picked from the photo; the category wins.
+      const hint = it.title ? ` The store calls this product "${it.title}"; if that names a different garment, still take the ${k.noun}.` : '';
+      return `Panel ${i + 1} (${POSITIONS[i]} from the left): use ONLY the ${k.noun}, meaning the ${k.examples}. Ignore ${k.others} and anything else in that panel.${hint}`;
+    })
+    .join(' ');
+  const bare = (['top', 'bottom', 'outerwear', 'shoes'] as const)
+    .filter((c) => !items.some((it) => it.category === c || (it.category === 'dress' && (c === 'top' || c === 'bottom'))))
+    .map((c) => (c === 'outerwear' ? 'no outerwear' : c === 'shoes' ? 'bare feet' : `no ${c}, leave that part of the mannequin bare`));
   return (
-    `The reference image shows ${count}: ${layout}. ` +
-    'Some may be photographed on a person or next to other clothing: take only these garments and ignore any people and other clothes. ' +
-    `Dress the mannequin in ${items.length === 1 ? 'it' : 'all of them at once'}: ${items.map((it) => WEAR[it.category]).join(', ')}. ` +
-    `${FAITHFUL} ${KEEP_MANNEQUIN}`
+    `The reference image shows ${items.length === 1 ? 'one panel' : `${items.length} panels side by side`}, each with one garment to use. ` +
+    `Some panels are store photos of a person wearing several clothes. ${panels} ` +
+    `Dress the mannequin in exactly ${items.length === 1 ? 'this one garment' : `these ${items.length} garments`} and nothing else: ${items.map((it) => WEAR[it.category]).join(', ')}.` +
+    (bare.length ? ` Everything not listed stays off the mannequin: ${bare.join('; ')}.` : '') +
+    ` ${FAITHFUL} ${KEEP_MANNEQUIN}`
   );
 }
 

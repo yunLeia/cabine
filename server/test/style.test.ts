@@ -165,18 +165,34 @@ const tests: [string, () => Promise<void>][] = [
     assert.doesNotMatch(it.title!, /["<>}\n|]/);
   }],
 
-  ['the FASHN prompt describes each garment by position, its layer, fidelity and the mannequin', async () => {
+  ['the FASHN prompt takes one garment per panel and leaves everything else out', async () => {
     const items = parseItems({
       items: [{ ...item('outerwear', 'coat'), title: 'Brown trench coat' }, item('top', 'cami'), item('bottom', 'jeans')],
     });
     const p = fashnPrompt(items);
-    assert.match(p, /3 separate garments side by side/);
-    assert.match(p, /first from the left, the bottom; second from the left, the top; third from the left, the outerwear \("Brown trench coat"\)/);
-    assert.match(p, /the top worn over the bottom, the outerwear worn open over everything else/);
-    assert.match(p, /ignore any people and other clothes/);
+    assert.match(p, /3 panels side by side/);
+    assert.match(p, /Panel 1 \(first from the left\): use ONLY the bottom, meaning the trousers, jeans, shorts or skirt\. Ignore tops, sweaters, outerwear and shoes/);
+    assert.match(p, /Panel 3 \(third from the left\): use ONLY the outerwear, meaning the coat, jacket or blazer/);
+    assert.match(p, /The store calls this product "Brown trench coat"; if that names a different garment, still take the outerwear\./);
+    assert.match(p, /exactly these 3 garments and nothing else: the bottom, the top worn over the bottom, the outerwear worn open over everything else/);
+    assert.match(p, /Everything not listed stays off the mannequin: bare feet\./);
     assert.match(p, /Keep full sleeves/);
     assert.match(p, /headless store mannequin/);
-    assert.match(fashnPrompt(items.slice(0, 1)), /shows one garment: .*Dress the mannequin in it:/);
+  }],
+
+  ['a bottom alone keeps the rest of the mannequin bare', async () => {
+    const p = fashnPrompt(parseItems({ items: [{ ...item('bottom', 'from-full-body-shot'), title: 'Double-breasted trench coat' }] }));
+    assert.match(p, /one panel/);
+    assert.match(p, /use ONLY the bottom, meaning the trousers/);
+    assert.match(p, /"Double-breasted trench coat"; if that names a different garment, still take the bottom/);
+    assert.match(p, /exactly this one garment and nothing else/);
+    assert.match(p, /no top, leave that part of the mannequin bare; no outerwear; bare feet/);
+  }],
+
+  ['a dress covers top and bottom, so they are not listed as bare', async () => {
+    const p = fashnPrompt(parseItems({ items: [item('dress', 'd')] }));
+    assert.doesNotMatch(p, /no top|no bottom/);
+    assert.match(p, /no outerwear; bare feet/);
   }],
 
   ['garments are composed side by side at one height on white', async () => {
