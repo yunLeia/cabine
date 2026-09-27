@@ -41,6 +41,8 @@ export interface Actions {
   seeOutfit(): void;
   toggleMenu(id: string | null): void;
   addToCloset(g: Garment): void;
+  cleanUp(g: Garment): void;
+  useOriginal(g: Garment): void;
   removeGarment(g: Garment): void;
 }
 
@@ -182,6 +184,12 @@ function itemMenu(g: Garment, a: Actions): HTMLElement {
     { class: 'item-menu', role: 'menu' },
     g.location === 'fittingRoom' &&
       h('button', { type: 'button', role: 'menuitem', onclick: () => a.addToCloset(g) }, 'Add to My Closet'),
+    g.location === 'closet' &&
+      g.cleanStatus !== 'pending' &&
+      h('button', { type: 'button', role: 'menuitem', onclick: () => a.cleanUp(g) }, g.cleanImageId ? 'Clean up again' : 'Clean up photo'),
+    g.location === 'closet' &&
+      g.cleanImageId &&
+      h('button', { type: 'button', role: 'menuitem', onclick: () => a.useOriginal(g) }, 'Use original photo'),
     h('button', { type: 'button', role: 'menuitem', class: 'danger', onclick: () => a.removeGarment(g) }, 'Remove'),
   );
 }
@@ -245,6 +253,8 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
               'button',
               { type: 'button', class: 'item', title: name(g), 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
               img(thumbSrc(g), 'item-img', name(g)),
+              g.location === 'closet' && g.cleanStatus === 'pending' && h('span', { class: 'item-badge' }, 'Cleaning up…'),
+              g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'item-badge failed' }, "Couldn't clean up"),
             ),
             h(
               'button',

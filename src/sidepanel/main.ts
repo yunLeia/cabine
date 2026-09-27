@@ -3,7 +3,7 @@ import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../sh
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
-import { RenderError, getSavedRender, lookKey, styleOutfit } from './render';
+import { RenderError, cleanUpPhoto, getSavedRender, lookKey, needsCleanup, styleOutfit } from './render';
 import { draftView, drawersView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft) mirrors chrome.storage.local and only
@@ -128,9 +128,26 @@ const actions: Actions = {
   },
 
   async addToCloset(g: Garment) {
-    // Step (b): extract a clean product photo here when the original needs it.
+    // Owned now: move it right away, then clean up its photo in the background
+    // if it's a model shot or busy photo (1 credit). Clean product shots are skipped.
     state.menuFor = null;
+    state.drawer = 'closet'; // follow it, so the clean-up is visible
+    state.filter = 'all';
     await updateGarment(g.id, { location: 'closet' });
+    if (await needsCleanup(g)) void cleanUp(g);
+  },
+
+  cleanUp(g: Garment) {
+    state.menuFor = null;
+    void cleanUp(g);
+  },
+
+  async useOriginal(g: Garment) {
+    // A generated product shot might not match the real item; the original is always one tap away.
+    state.menuFor = null;
+    const old = g.cleanImageId;
+    await updateGarment(g.id, { cleanImageId: undefined, cleanStatus: undefined });
+    if (old) await deleteImage(old);
   },
 
   async removeGarment(g: Garment) {
@@ -141,6 +158,19 @@ const actions: Actions = {
     await Promise.all([deleteImage(g.imageId), g.cleanImageId ? deleteImage(g.cleanImageId) : null]);
   },
 };
+
+async function cleanUp(g: Garment): Promise<void> {
+  await updateGarment(g.id, { cleanStatus: 'pending' });
+  try {
+    const clean = await cleanUpPhoto(g);
+    const cleanImageId = `clean-${g.id}`;
+    await putImage(cleanImageId, clean);
+    await updateGarment(g.id, { cleanImageId, cleanStatus: undefined });
+  } catch (err) {
+    if (!(err instanceof RenderError)) console.error('[cabine] clean-up failed', err);
+    await updateGarment(g.id, { cleanStatus: 'failed' });
+  }
+}
 
 function setRender(r: RenderState | null): void {
   if (state.render?.imageUrl && state.render.imageUrl !== r?.imageUrl) URL.revokeObjectURL(state.render.imageUrl);

@@ -1,10 +1,12 @@
-// POST /api/style: render an outfit in one call (docs/decisions.md D13, D14, D16).
+// One function, two routes (a dynamic route so both share this code):
+//   POST /api/style    render an outfit in one call (docs/decisions.md D13, D14, D16)
+//   POST /api/extract  clean product photo of one garment, for My Closet (D18, D19)
 //
-// The extension sends the selected garments' original images, categories and
-// titles. This function owns everything that costs money: which render provider
-// and settings, the whole-look cache, and the spending limits. It streams a
-// small NDJSON progress feed (plan, then result) so the panel knows right away
-// whether the look was cached, and the connection stays alive while it renders.
+// The extension sends original garment images, categories and titles. This
+// function owns everything that costs money: which providers and settings, the
+// caches, and the daily spending limit. Both routes stream a small NDJSON feed
+// (plan, then result) so the panel knows right away whether it was cached, and
+// the connection stays alive while the model works.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -39,6 +41,14 @@ export interface RenderProvider {
   render(items: Item[]): Promise<Uint8Array>; // JPEG bytes of the styled look
 }
 
+// Cleans up one garment's photo into a product shot, for My Closet thumbnails only.
+// Renders always use the original photo.
+export interface ExtractProvider {
+  id: string;
+  credits: number; // per garment
+  extract(item: Item): Promise<Uint8Array>; // JPEG bytes
+}
+
 // ---- Other dependencies (swapped for fakes in tests) ------------------------------------
 
 export interface Stored {
@@ -57,6 +67,7 @@ export class ConflictError extends Error {}
 export interface Deps {
   store: Store;
   provider: RenderProvider;
+  extractor: ExtractProvider;
   clientKey: string;
   dailyCreditLimit: number;
   today?: () => string;
@@ -125,6 +136,28 @@ async function renderLook(items: Item[], deps: Deps, emit: (e: Event) => void): 
   emit({ type: 'result', image: dataUri(image, 'image/jpeg'), credits });
 }
 
+// ---- Extraction: one garment → a clean product photo, cached per photo + category ----------
+
+const cleanPath = (item: Item, extractor: ExtractProvider) =>
+  `clean/${sha(JSON.stringify([extractor.id, item.category, item.hash, item.title ?? '']))}.jpg`;
+
+async function extractGarment(item: Item, deps: Deps, emit: (e: Event) => void): Promise<void> {
+  const started = Date.now();
+  const path = cleanPath(item, deps.extractor);
+  const hit = await deps.store.read(path);
+  const credits = hit ? 0 : deps.extractor.credits;
+  emit({ type: 'plan', cached: !!hit, credits });
+
+  let image = hit?.bytes;
+  if (!image) {
+    await reserveCredits(credits, deps);
+    image = await deps.extractor.extract(item);
+    await deps.store.write(path, image, 'image/jpeg');
+  }
+  console.log(JSON.stringify({ event: 'extract', provider: deps.extractor.id, category: item.category, cached: !!hit, credits, seconds: (Date.now() - started) / 1000 }));
+  emit({ type: 'result', image: dataUri(image, 'image/jpeg'), credits });
+}
+
 const dataUri = (bytes: Uint8Array, mime: string) => `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
 
 // ---- Spending limit: a daily credit counter with optimistic concurrency ----------------
@@ -161,26 +194,31 @@ function authorized(request: Request, clientKey: string): boolean {
 
 export function createHandler(getDeps: () => Deps) {
   return async function POST(request: Request): Promise<Response> {
+    const action = new URL(request.url).pathname.split('/').pop();
+    if (action !== 'style' && action !== 'extract') return Response.json({ error: 'not found' }, { status: 404 });
     const deps = getDeps();
     if (!authorized(request, deps.clientKey)) return Response.json({ error: 'unauthorized' }, { status: 401 });
 
+    // /api/style takes { items: [...] }; /api/extract takes one garment { category, image, title? }.
     let items: Item[];
     try {
-      items = parseItems(await request.json());
+      const body = (await request.json()) as Record<string, unknown>;
+      items = parseItems(action === 'style' ? body : { items: [body] });
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'invalid JSON body';
       return Response.json({ error: message }, { status: 400 });
     }
+    const work = (emit: (e: Event) => void) => (action === 'style' ? renderLook(items, deps, emit) : extractGarment(items[0], deps, emit));
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const emit = (e: Event) => controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
         try {
-          await renderLook(items, deps, emit);
+          await work(emit);
         } catch (err) {
           const code = err instanceof LimitError ? 'daily_limit' : 'render_failed';
-          console.error('[style]', code, err);
+          console.error(`[${action}]`, code, err);
           emit({ type: 'error', code, message: err instanceof Error ? err.message : String(err) });
         } finally {
           controller.close();
@@ -301,6 +339,46 @@ export function fashnProvider(apiKey: () => string, base: () => Promise<Uint8Arr
   };
 }
 
+// FASHN Edit turns a store photo (often a model wearing a whole outfit) into a
+// product shot of the one garment the shopper picked. Tested in
+// scripts/fashn-trial (D19): faithful for a lace cami, a trench coat, and the
+// trousers under that coat; one call per garment (batching them in a grid
+// skipped panels).
+const EDIT = { model: 'edit', generation_mode: 'fast', resolution: '1k' } as const;
+const EXTRACT_PROMPT_VERSION = 1;
+
+export function extractPrompt(item: Item): string {
+  const k = KIND[item.category];
+  const hint = item.title ? ` The store calls this product "${item.title}"; if that names a different garment, still take the ${k.noun}.` : '';
+  return (
+    `Turn this photo into a clean e-commerce product photo of only the ${k.noun} (the ${k.examples}) shown in it. Ignore ${k.others}.${hint} ` +
+    'Show that garment alone, front view, ghost-mannequin style, centered on a pure white #FFFFFF background. ' +
+    'No person, body, skin, hair, mannequin or hanger, no other clothing, and no icons, badges, logos or text from the web page. ' +
+    'Keep the garment exactly as it is: color, fabric, texture, pattern, length, neckline, sleeves, buttons, lace, ties, belts, straps and every other detail. ' +
+    'Do not add, remove or redesign anything.'
+  );
+}
+
+export function fashnExtractor(apiKey: () => string): ExtractProvider {
+  return {
+    id: `fashn:${EDIT.model}:${EDIT.generation_mode}:${EDIT.resolution}:prompt-v${EXTRACT_PROMPT_VERSION}`,
+    credits: 1,
+    async extract(item) {
+      const t = Date.now();
+      const out = await fashnRun(apiKey(), EDIT.model, {
+        image: dataUri(item.bytes, item.mime),
+        prompt: extractPrompt(item),
+        generation_mode: EDIT.generation_mode,
+        resolution: EDIT.resolution,
+        output_format: 'jpeg',
+        return_base64: true,
+      });
+      console.log(JSON.stringify({ event: 'fashn', model: EDIT.model, category: item.category, seconds: (Date.now() - t) / 1000 }));
+      return fillFrame(out);
+    },
+  };
+}
+
 async function fashnRun(apiKey: string, model: string, inputs: Record<string, unknown>): Promise<Uint8Array> {
   const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
   const res = await fetch('https://api.fashn.ai/v1/run', { method: 'POST', headers, body: JSON.stringify({ model_name: model, inputs }) });
@@ -374,6 +452,7 @@ export const POST = createHandler(() => ({
   store: blobStore,
   // The FASHN key is read only when rendering, so auth and validation work without it.
   provider: fashnProvider(() => env('FASHN_API_KEY'), loadBase),
+  extractor: fashnExtractor(() => env('FASHN_API_KEY')),
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 30),
 }));

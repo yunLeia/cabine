@@ -8,13 +8,15 @@ import {
   ConflictError,
   composeGarments,
   createHandler,
+  extractPrompt,
   fashnPrompt,
   parseItems,
   type Deps,
+  type ExtractProvider,
   type Item,
   type RenderProvider,
   type Store,
-} from '../api/style.ts';
+} from '../api/[action].ts';
 
 // In-memory store with real etag semantics, so the usage counter's retry logic is exercised.
 function memoryStore(): Store & { files: Map<string, { bytes: Uint8Array; etag: string }> } {
@@ -50,12 +52,25 @@ function fakeProvider(id = 'fake:v1'): RenderProvider & { calls: Item[][] } {
   };
 }
 
+function fakeExtractor(): ExtractProvider & { calls: Item[] } {
+  const calls: Item[] = [];
+  return {
+    id: 'fake-extract:v1',
+    credits: 1,
+    calls,
+    async extract(item) {
+      calls.push(item);
+      return new Uint8Array(createHash('sha256').update('clean' + item.category + item.hash).digest());
+    },
+  };
+}
+
 const img = (label: string) => `data:image/jpeg;base64,${Buffer.from(`image:${label}`).toString('base64')}`;
 const item = (category: string, label: string) => ({ category, image: img(label) });
 
-async function call(deps: Deps, body: unknown, key = 'secret') {
+async function call(deps: Deps, body: unknown, key = 'secret', route = 'style') {
   const res = await createHandler(() => deps)(
-    new Request('https://x/api/style', { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify(body) }),
+    new Request(`https://x/api/${route}`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify(body) }),
   );
   if (res.headers.get('content-type') !== 'application/x-ndjson') return { status: res.status, body: await res.json() };
   const events = (await res.text()).trim().split('\n').map((l) => JSON.parse(l));
@@ -65,8 +80,9 @@ async function call(deps: Deps, body: unknown, key = 'secret') {
 function setup(limit = 100) {
   const store = memoryStore();
   const provider = fakeProvider();
-  const deps: Deps = { store, provider, clientKey: 'secret', dailyCreditLimit: limit, today: () => '2026-09-27' };
-  return { store, provider, deps };
+  const extractor = fakeExtractor();
+  const deps: Deps = { store, provider, extractor, clientKey: 'secret', dailyCreditLimit: limit, today: () => '2026-09-27' };
+  return { store, provider, extractor, deps };
 }
 
 const look = { items: [item('outerwear', 'coat'), item('top', 'knit'), item('bottom', 'jeans')] };
@@ -193,6 +209,42 @@ const tests: [string, () => Promise<void>][] = [
     const p = fashnPrompt(parseItems({ items: [item('dress', 'd')] }));
     assert.doesNotMatch(p, /no top|no bottom/);
     assert.match(p, /no outerwear; bare feet/);
+  }],
+
+  ['extract: one garment, one credit, cached per photo and category', async () => {
+    const { deps, extractor } = setup();
+    const first = await call(deps, item('top', 'model-shot'), 'secret', 'extract');
+    assert.deepEqual(first.plan, { type: 'plan', cached: false, credits: 1 });
+    assert.equal(first.last.type, 'result');
+    const again = await call(deps, item('top', 'model-shot'), 'secret', 'extract');
+    assert.deepEqual(again.plan, { type: 'plan', cached: true, credits: 0 });
+    assert.equal(again.last.image, first.last.image);
+    await call(deps, item('bottom', 'model-shot'), 'secret', 'extract'); // same photo, another garment
+    assert.equal(extractor.calls.length, 2);
+  }],
+
+  ['extract: validates like style, shares the daily cap, unknown routes 404', async () => {
+    const { deps, extractor, provider } = setup(2);
+    assert.equal((await call(deps, { category: 'hat', image: img('x') }, 'secret', 'extract')).status, 400);
+    assert.equal((await call(deps, item('top', 'x'), 'nope', 'extract')).status, 401);
+    assert.equal((await call(deps, item('top', 'x'), 'secret', 'delete-everything')).status, 404);
+    await call(deps, item('top', 'a'), 'secret', 'extract'); // 1 credit
+    await call(deps, { items: [item('top', 'b')] }); // 1 credit (render)
+    const r = await call(deps, item('top', 'c'), 'secret', 'extract');
+    assert.equal(r.last.code, 'daily_limit');
+    assert.equal(extractor.calls.length, 1);
+    assert.equal(provider.calls.length, 1);
+  }],
+
+  ['the extract prompt asks for one clean garment and keeps its details', async () => {
+    const [it] = parseItems({ items: [{ ...item('bottom', 'x'), title: 'Double-breasted trench coat' }] });
+    const p = extractPrompt(it);
+    assert.match(p, /only the bottom \(the trousers, jeans, shorts or skirt\)/);
+    assert.match(p, /Ignore tops, sweaters, outerwear and shoes/);
+    assert.match(p, /if that names a different garment, still take the bottom/);
+    assert.match(p, /pure white #FFFFFF background/);
+    assert.match(p, /no icons, badges, logos or text/);
+    assert.match(p, /belts, straps/);
   }],
 
   ['garments are composed side by side at one height on white', async () => {

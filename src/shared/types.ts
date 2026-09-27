@@ -27,6 +27,7 @@ export interface Garment {
   imageId: string; // IndexedDB key of the original image
   imageVersion: number; // bumped if the image is replaced; part of the render cache key
   cleanImageId?: string; // extracted product shot, for My Closet thumbnails only (renders use the original)
+  cleanStatus?: 'pending' | 'failed'; // a clean-up in progress, or the last one failed
   createdAt: number;
 }
 

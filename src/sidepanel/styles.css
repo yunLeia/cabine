@@ -134,3 +134,10 @@ button { font: inherit; color: inherit; }
 .item-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
 .item-menu button:hover { background: var(--surface); }
 .item-menu .danger { color: #a33a2b; }
+
+.item { position: relative; }
+.item-badge {
+  position: absolute; left: 4px; right: 4px; bottom: 4px; font-size: 10px; text-align: center;
+  padding: 2px 4px; border-radius: 6px; background: rgba(255, 255, 255, 0.92); color: var(--accent);
+}
+.item-badge.failed { color: #a33a2b; }

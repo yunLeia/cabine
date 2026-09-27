@@ -250,3 +250,24 @@ docs/
   - A dimmed old render still takes space while you edit.
   - Moving an item between drawers is a menu action, not drag-and-drop.
 - **Supersedes:** D17's band crop (removed), and the full-panel result screen from R5.
+
+## D19. Clean product photos for My Closet: one FASHN Edit call per item, only when needed
+
+- **Context:** store photos are often a model wearing a whole outfit, so My Closet thumbnails didn't show which piece you own. Cropping (D17) looked bad.
+- **Test** (`scripts/fashn-trial/experiment.ts extract`, 4 credits):
+  - **One Edit call per garment** turned a waist-up model shot into a faithful product shot of the lace cami, a trench photo into the coat, and the same trench photo into the model's trousers ("ignoring the coat").
+  - Misses: the coat's belt was dropped, and the trousers kept a grey backdrop and the store page's ♡ icon.
+  - **Batching** three photos in one grid (1 credit) left one panel unchanged and shared a smaller output, so it's unreliable.
+  - Calls took 55–67 s while 4 ran in parallel.
+- **Decision:**
+  - `POST /api/extract`, in the same function as `/api/style` (dynamic route `api/[action].ts`), behind an `ExtractProvider` interface.
+  - It shares validation, the key, the daily credit cap, streaming and logs.
+  - Results are cached per photo hash, category and title (`clean/<hash>.jpg`), so the same photo is never cleaned twice.
+  - Prompt: only the picked garment (the category wins over the store's title), pure white #FFFFFF background, no icons, badges or text, keep belts, straps and ties, add or change nothing.
+  - **When it runs:** on *Add to My Closet*, in the background, only if the photo needs it: a light, plain border **and** under 6% skin-tone pixels in the middle means it's already a product shot, so it's skipped (free). For My Closet items, it runs on demand via *Clean up photo*.
+  - The thumbnail shows "Cleaning up…" until it's done. *Use original photo* reverts at any time. **Renders always use the original.**
+- **Tradeoffs:**
+  - 1 credit per cleaned item.
+  - Generated product shots can drop or invent small details; that's why they're thumbnails only, and reversible.
+  - The check misses dress forms hidden by dark garments (they stay uncleaned, free) and can flag brown or camel garments as skin (an unneeded credit).
+- **Revisit when:** clean-up errors show up in M1.6, a cheaper extractor matches FASHN's quality, or batching becomes reliable.

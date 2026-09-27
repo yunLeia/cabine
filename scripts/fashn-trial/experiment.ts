@@ -4,6 +4,8 @@
 //       Model Create: headless mannequin candidates on white → out/exp/base-<seed>.jpg
 //   node scripts/fashn-trial/experiment.ts collage <base.jpg> <collage.jpg> "<prompt>" <name>
 //       One Try-On Max call with every garment in one product image → out/exp/<name>.jpg
+//   node scripts/fashn-trial/experiment.ts extract <image> "<prompt>" <name>
+//       One Edit call: a clean product shot of one garment (or a grid of them) → out/exp/<name>.jpg
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
@@ -78,6 +80,18 @@ if (cmd === 'bases') {
     writeFileSync(file, bytes);
     console.log(`${name}: ${seconds.toFixed(1)}s → ${file}`);
   }
+} else if (cmd === 'extract') {
+  const [image, prompt, name] = rest;
+  const file = join(OUT, `${name}.jpg`);
+  if (existsSync(file)) {
+    console.log(`cached ${file}`);
+  } else {
+    const { bytes, seconds } = await run('edit', {
+      image: dataUri(resolve(image)), prompt, generation_mode: 'fast', resolution: '1k', output_format: 'jpeg', return_base64: true,
+    });
+    writeFileSync(file, bytes);
+    console.log(`${name}: ${seconds.toFixed(1)}s → ${file}`);
+  }
 } else {
-  console.log('usage: experiment.ts bases | collage <base> <collage> "<prompt>" <name>');
+  console.log('usage: experiment.ts bases | collage <base> <collage> "<prompt>" <name> | extract <image> "<prompt>" <name>');
 }
