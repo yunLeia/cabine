@@ -4,8 +4,26 @@
     {
       "name": "panel-preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "dist"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4173",
+        "--directory",
+        "dist"
+      ],
       "port": 4173
+    },
+    {
+      "name": "fashn-report",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4174",
+        "--directory",
+        "scripts/fashn-trial"
+      ],
+      "port": 4174
     }
   ]
 }
