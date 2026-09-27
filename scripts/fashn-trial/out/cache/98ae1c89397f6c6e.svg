@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 500">
+  <g fill="#dcd6cc">
+    <circle cx="100" cy="44" r="22"/>
+    <rect x="92" y="62" width="16" height="26" rx="4"/>
+    <!-- torso, shoulders at y≈90, waist at y≈235 -->
+    <path d="M58 92 Q100 80 142 92 Q150 96 150 108 L138 238 L62 238 L50 108 Q50 96 58 92 Z"/>
+    <!-- arms -->
+    <path d="M52 100 L38 108 L28 250 Q31 258 38 256 L60 132 Z"/>
+    <path d="M148 100 L162 108 L172 250 Q169 258 162 256 L140 132 Z"/>
+    <!-- hips and legs, down to y≈478 -->
+    <path d="M66 232 L134 232 L135 262 L126 476 L106 478 L101 300 L99 300 L94 478 L74 476 L65 262 Z"/>
+  </g>
+</svg>

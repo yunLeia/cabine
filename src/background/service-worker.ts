@@ -1,6 +1,7 @@
-import { CAPTURE_KEY, type Capture } from '../shared/capture';
 import { deleteImage, putImage } from '../shared/images';
-import { normalizeImage } from './process';
+import { SEED_CLOSET, SEED_VERSION } from '../shared/seed';
+import { KEYS, addGarments, getDraft, setDraft } from '../shared/store';
+import type { Draft, Garment } from '../shared/types';
 
 // Background service worker: the extension's event hub. Chrome starts it when an
 // event it listens for fires and stops it when idle, so it must not hold state
@@ -30,6 +31,7 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Try in Cabine',
     contexts: ['image'], // only shown when right-clicking an <img>
   });
+  void seedCloset();
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -42,47 +44,72 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       .open({ windowId: tab.windowId })
       .catch((err) => console.error('[cabine] sidePanel.open failed', err));
   }
-
-  void startCapture(info, tab);
+  void capture(info.srcUrl, info.pageUrl, tab?.title);
 });
 
-async function startCapture(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab): Promise<void> {
-  const capture: Capture = {
+// Save a copy of the original image (retailer URLs expire or block other
+// sites) as a draft; the panel asks for the category. No processing: the
+// original is the source of truth (D13).
+async function capture(srcUrl: string, pageUrl?: string, pageTitle?: string): Promise<void> {
+  const draft: Draft = {
     id: crypto.randomUUID(),
-    srcUrl: info.srcUrl!,
-    pageUrl: info.pageUrl,
-    title: tab?.title || (info.pageUrl ? new URL(info.pageUrl).hostname : 'Captured item'),
-    capturedAt: Date.now(),
-    status: 'processing',
+    sourceType: 'shopping',
+    title: pageTitle || (pageUrl ? new URL(pageUrl).hostname : undefined),
+    sourcePageUrl: pageUrl,
+    sourceImageUrl: srcUrl,
+    status: 'downloading',
+    createdAt: Date.now(),
   };
-
-  // Show it right away (the panel displays srcUrl while we process), and drop
-  // the previous capture's image: only one candidate exists at a time.
-  const prev = await getCapture();
-  await chrome.storage.local.set({ [CAPTURE_KEY]: capture });
-  if (prev?.imageId) void deleteImage(prev.imageId);
+  const prev = await getDraft();
+  await setDraft(draft);
+  if (prev?.imageId) void deleteImage(prev.imageId); // an unsaved draft is replaced
 
   try {
-    const { blob, stats } = await normalizeImage(capture.srcUrl);
-    await putImage(capture.id, blob);
-    await updateIfCurrent(capture.id, { status: 'ready', imageId: capture.id, stats });
+    const res = await fetch(srcUrl); // any origin, thanks to host_permissions
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!blob.type.startsWith('image/')) throw new Error(`not an image (${blob.type || 'unknown type'})`);
+    await putImage(draft.id, blob);
+    await updateDraftIfCurrent(draft.id, { status: 'ready', imageId: draft.id });
   } catch (err) {
-    console.warn('[cabine] normalize failed', capture.srcUrl, err);
-    await updateIfCurrent(capture.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
+    console.warn('[cabine] capture failed', srcUrl, err);
+    await updateDraftIfCurrent(draft.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
   }
 }
 
-async function getCapture(): Promise<Capture | undefined> {
-  return (await chrome.storage.local.get(CAPTURE_KEY))[CAPTURE_KEY] as Capture | undefined;
-}
-
-// While we were processing, the user may have picked a category (keep it), or
-// captured/removed something else (then this result is stale: discard it).
-async function updateIfCurrent(id: string, patch: Partial<Capture>): Promise<void> {
-  const current = await getCapture();
+// The user may have captured something else or discarded this draft while it
+// downloaded; then this result is stale.
+async function updateDraftIfCurrent(id: string, patch: Partial<Draft>): Promise<void> {
+  const current = await getDraft();
   if (current?.id !== id) {
     if (patch.imageId) await deleteImage(patch.imageId);
     return;
   }
-  await chrome.storage.local.set({ [CAPTURE_KEY]: { ...current, ...patch } });
+  await setDraft({ ...current, ...patch });
+}
+
+// Copy the packaged closet into the library once. Missing files are skipped:
+// the seed photos are git-ignored, so a fresh clone starts with an empty closet.
+async function seedCloset(): Promise<void> {
+  const { [KEYS.seedVersion]: seeded } = await chrome.storage.local.get(KEYS.seedVersion);
+  if (seeded === SEED_VERSION) return;
+
+  const added: Garment[] = [];
+  for (const item of SEED_CLOSET) {
+    const res = await fetch(chrome.runtime.getURL(item.file)).catch(() => null);
+    if (!res?.ok) continue;
+    const id = crypto.randomUUID();
+    await putImage(id, await res.blob());
+    added.push({
+      id,
+      sourceType: 'closet',
+      category: item.category,
+      title: item.title,
+      imageId: id,
+      imageVersion: 1,
+      createdAt: Date.now(),
+    });
+  }
+  await addGarments(added);
+  await chrome.storage.local.set({ [KEYS.seedVersion]: SEED_VERSION });
 }
