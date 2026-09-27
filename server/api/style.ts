@@ -22,7 +22,7 @@ const PROMPT_VERSION = 2;
 const KEEP_MANNEQUIN =
   'Keep the mannequin exactly as it is: a white matte headless store mannequin with no skin, no head and no hair. Do not turn it into a person. Keep the plain white background with no shadows.';
 const FAITHFUL =
-  'Reproduce the garment exactly: color, material, texture, silhouette, length, neckline, buttons, pockets and collar. Do not add, remove or redesign any details.';
+  'Reproduce the garment exactly: color, material, texture, silhouette, length, sleeves, neckline, buttons, pockets and collar. Keep its full sleeves even over another layer. Do not add, remove or redesign any details.';
 const LAYERING: Record<Category, string> = {
   bottom: 'Put it on the mannequin.',
   dress: 'Put it on the mannequin.',
@@ -138,7 +138,7 @@ const stepPath = (key: string) => `steps/${key}.jpg`;
 
 type Event =
   | { type: 'plan'; steps: { category: Category | 'base'; cached: boolean }[]; credits: number }
-  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number }
+  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number; image?: string }
   | { type: 'result'; image: string; credits: number }
   | { type: 'error'; code: string; message: string };
 
@@ -180,9 +180,14 @@ async function renderChain(items: Item[], deps: Deps, emit: (e: Event) => void):
             prompt: tryOnPrompt(items[i - 1]),
           });
     await deps.store.write(stepPath(keys[i]), current, 'image/jpeg');
-    emit({ type: 'step', index: i, category: labels[i], status: 'done', seconds: (Date.now() - started) / 1000 });
+    const seconds = (Date.now() - started) / 1000;
+    console.log(JSON.stringify({ event: 'step', index: i, category: labels[i], seconds, of: keys.length - 1 - from }));
+    // Each step's image goes to the panel right away, so the shopper watches the
+    // mannequin get dressed instead of staring at a spinner.
+    emit({ type: 'step', index: i, category: labels[i], status: 'done', seconds, image: dataUri(current, 'image/jpeg') });
   }
 
+  console.log(JSON.stringify({ event: 'result', steps: keys.length, cached: from + 1, credits }));
   emit({ type: 'result', image: dataUri(current!, 'image/jpeg'), credits });
 }
 
@@ -288,7 +293,7 @@ export function fashnClient(apiKey: string): Fashn {
       const body = (await res.json()) as { id?: string; error?: unknown };
       if (!res.ok || !body.id) throw new Error(`FASHN run ${res.status}: ${JSON.stringify(body.error ?? body)}`);
       for (const deadline = Date.now() + 120_000; Date.now() < deadline; ) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1000)); // FASHN allows 50 status checks per 10 s
         const s = (await (await fetch(`https://api.fashn.ai/v1/status/${body.id}`, { headers })).json()) as {
           status: string;
           output?: string[];

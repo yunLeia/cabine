@@ -21,7 +21,7 @@ export interface ProgressStep {
 
 export type RenderEvent =
   | { type: 'plan'; steps: { category: Category | 'base'; cached: boolean }[]; credits: number }
-  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number }
+  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number; image?: string }
   | { type: 'result'; image: string; credits: number }
   | { type: 'error'; code: string; message: string };
 

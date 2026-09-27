@@ -8,6 +8,7 @@ export interface RenderState {
   garments: Garment[]; // the pieces, in layering order, as they were when requested
   steps: ProgressStep[]; // what's left to make, from the server's plan
   status: 'running' | 'done' | 'error';
+  preview?: string; // the latest finished step, shown while the rest renders
   imageUrl?: string;
   error?: string;
 }
@@ -185,7 +186,8 @@ function progressView(r: RenderState): HTMLElement {
   const done = pieces.filter((s) => s.status === 'done').length;
   return h(
     'div',
-    { class: 'progress', role: 'status', 'aria-live': 'polite' },
+    { class: r.preview ? 'progress with-preview' : 'progress', role: 'status', 'aria-live': 'polite' },
+    r.preview && h('img', { class: 'render-img preview', src: r.preview, alt: '' }),
     h('p', { class: 'progress-title' }, 'Styling your look…'),
     h(
       'ol',

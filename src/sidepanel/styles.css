@@ -103,6 +103,9 @@ button { font: inherit; color: inherit; }
 }
 .render-img { width: 100%; height: auto; display: block; }
 .progress { padding: 24px; width: 100%; }
+.progress.with-preview { padding: 0 0 16px; }
+.progress.with-preview > :not(.preview) { margin-left: 16px; margin-right: 16px; }
+.render-img.preview { margin-bottom: 12px; opacity: 0.85; }
 .progress-title { font-weight: 600; margin: 0 0 12px; }
 .progress-steps { list-style: none; margin: 0 0 10px; padding: 0; }
 .progress-step { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; color: var(--muted); }

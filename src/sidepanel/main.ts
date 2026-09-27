@@ -138,6 +138,7 @@ function applyEvent(r: RenderState, e: RenderEvent): void {
   } else if (e.type === 'step') {
     const step = r.steps.find((s) => s.category === e.category);
     if (step) step.status = e.status;
+    if (e.image) r.preview = e.image;
   }
 }
 
