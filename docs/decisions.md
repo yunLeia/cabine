@@ -143,3 +143,28 @@ docs/
   - Does quality drift along the chain?
   - Packshot (Studio) could extract garments later if needed.
 - **Revisit when:** users want faster visual feedback while mixing, renders cost too much per outfit, or chain drift makes a single-call general image model better.
+
+## D14. Render proxy: one Vercel Function with a Blob-backed step cache
+
+- **Context:** "Style together" (D13) needs the FASHN key, which can't ship in the extension (D4).
+- **Options:**
+  - Where it runs: Vercel Functions · Cloudflare Workers
+  - How images reach it: sent with each request · uploaded to Blob under an install ID
+  - Cache and limits in: Vercel Blob · Redis
+- **Decision:**
+  - A single Node.js Vercel Function, `POST /api/style` (`server/`).
+  - The extension sends each garment's original image with the request (downsized first), so no accounts or install IDs are needed.
+  - The function owns the model, settings, layering order, cache and spending limits, and streams progress as NDJSON (newline-delimited JSON, one event per line).
+  - Each chain step is stored in **private** Blob at `steps/<hash>`, where the hash covers the previous step, the garment image, the settings and the prompt version. Changing only the outermost garment costs one step.
+  - Daily credit cap: a Blob counter updated with `ifMatch` (optimistic concurrency), so no database is needed.
+- **Why:**
+  - Vercel: free Hobby tier, CLI already installed, streaming on Node.js with no configuration, and a 300 s limit that easily covers a 5-step chain (~50 s).
+  - Blob alone covers both the cache (existence = hit) and the counter, so there's no second service.
+  - Sending images avoids user identity entirely.
+  - Hashing image contents replaces a manual `imageVersion`: a replaced image is automatically a new step.
+- **Tradeoffs:**
+  - Images are re-sent on every request (a few hundred KB each after downsizing).
+  - The shared client key only deters casual misuse; the daily cap and the prepaid FASHN balance (auto top-up off) are the real limits.
+  - Anyone who knows a step's hash could reuse its cached render. Harmless, since hashes are unguessable and Blob is private.
+  - The cache grows without cleanup.
+- **Revisit when:** more than one person uses it (per-user limits need identity), Blob storage cost matters (add cleanup), or request size becomes a problem (upload images once, send hashes).
