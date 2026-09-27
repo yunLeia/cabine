@@ -1,6 +1,16 @@
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Outfit } from '../shared/types';
 import { h } from './dom';
 import { imageUrl } from './image-urls';
+import type { ProgressStep } from './render';
+
+export interface RenderState {
+  key: string; // which look this is (render.ts lookKey)
+  garments: Garment[]; // the pieces, in layering order, as they were when requested
+  steps: ProgressStep[]; // what's left to make, from the server's plan
+  status: 'running' | 'done' | 'error';
+  imageUrl?: string;
+  error?: string;
+}
 
 export interface ViewState {
   garments: Garment[];
@@ -9,6 +19,8 @@ export interface ViewState {
   draft: Draft | null;
   filter: Category | 'all';
   choosing: Category | null; // the slot the user is picking a garment for
+  view: 'build' | 'result';
+  result: RenderState | null;
 }
 
 export interface Actions {
@@ -20,6 +32,7 @@ export interface Actions {
   cancelChoose(): void;
   filter(filter: Category | 'all'): void;
   seeOutfit(): void;
+  editLook(): void;
 }
 
 const thumb = (imageId: string | undefined, cls: string) => {
@@ -159,4 +172,67 @@ export function libraryView(s: ViewState, a: Actions): HTMLElement {
       );
 
   return h('section', { class: 'library', id: 'library', 'aria-label': 'Your closet' }, heading, filters, grid);
+}
+
+// ---- Result: the render takes over the panel ------------------------------------
+
+const pieceName = (g: Garment) => g.title ?? CATEGORY_LABEL[g.category];
+
+function progressView(r: RenderState): HTMLElement {
+  const byCategory = new Map(r.garments.map((g) => [g.category, g]));
+  const label = (c: Category | 'base') => (c === 'base' ? 'Mannequin (first time only)' : pieceName(byCategory.get(c)!));
+  const pieces = r.steps.filter((s) => s.category !== 'base');
+  const done = pieces.filter((s) => s.status === 'done').length;
+  return h(
+    'div',
+    { class: 'progress', role: 'status', 'aria-live': 'polite' },
+    h('p', { class: 'progress-title' }, 'Styling your look…'),
+    h(
+      'ol',
+      { class: 'progress-steps' },
+      ...r.steps.map((s) =>
+        h(
+          'li',
+          { class: `progress-step ${s.status}` },
+          h('span', { class: 'progress-mark', 'aria-hidden': 'true' }, s.status === 'done' ? '✓' : s.status === 'running' ? '●' : '○'),
+          s.status === 'running' ? `Adding ${label(s.category)}…` : label(s.category),
+        ),
+      ),
+    ),
+    pieces.length > 0 && h('p', { class: 'muted small' }, `${done} of ${pieces.length} · about 15 seconds per piece`),
+  );
+}
+
+export function resultView(r: RenderState, a: Actions): HTMLElement {
+  const frame =
+    r.status === 'done' && r.imageUrl
+      ? h('img', { class: 'render-img', src: r.imageUrl, alt: `Outfit: ${r.garments.map(pieceName).join(', ')}` })
+      : r.status === 'error'
+        ? h(
+            'div',
+            { class: 'render-error', role: 'alert' },
+            h('p', {}, r.error ?? 'Something went wrong.'),
+            h('button', { type: 'button', class: 'primary', onclick: a.seeOutfit }, 'Try again'),
+          )
+        : progressView(r);
+
+  return h(
+    'section',
+    { class: 'result', 'aria-label': 'Your outfit' },
+    h('button', { type: 'button', class: 'link back', onclick: a.editLook }, '← Edit look'),
+    h('div', { class: `render-frame ${r.status}` }, frame),
+    h(
+      'ul',
+      { class: 'result-pieces' },
+      ...r.garments.map((g) =>
+        h(
+          'li',
+          {},
+          thumb(g.imageId, 'result-thumb'),
+          h('span', { class: 'piece-name' }, pieceName(g)),
+          h('span', { class: g.sourceType === 'shopping' ? 'tag' : 'tag owned' }, g.sourceType === 'shopping' ? 'Trying' : 'My closet'),
+        ),
+      ),
+    ),
+  );
 }

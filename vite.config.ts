@@ -9,7 +9,10 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 //   fixed filename, so it must not get a content hash.
 export default defineConfig({
   root: r('./src'),
-  publicDir: r('./public'), // copied as-is: manifest.json, mannequin, seed images
+  publicDir: r('./public'), // copied as-is: manifest.json, seed images
+  // .env.local lives at the project root. Only VITE_* variables reach the bundle,
+  // so server secrets in the same file (FASHN key, Blob token) never do.
+  envDir: r('.'),
   build: {
     outDir: r('./dist'),
     emptyOutDir: true,

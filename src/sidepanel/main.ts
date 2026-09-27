@@ -1,13 +1,14 @@
 import { deleteImage, putImage } from '../shared/images';
-import { pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
+import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, setDraft, setOutfit } from '../shared/store';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
-import { draftView, libraryView, lookView, type Actions, type ViewState } from './views';
+import { RenderError, getSavedRender, lookKey, styleOutfit, type RenderEvent } from './render';
+import { draftView, libraryView, lookView, resultView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft) is a mirror of chrome.storage.local and
 // only changes through storage writes + onChanged. UI-only state (filter,
-// choosing) lives here.
+// choosing, view, result) lives here.
 const state: ViewState = {
   garments: [],
   byId: new Map(),
@@ -15,6 +16,8 @@ const state: ViewState = {
   draft: null,
   filter: 'all',
   choosing: null,
+  view: 'build',
+  result: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -81,10 +84,62 @@ const actions: Actions = {
     render();
   },
 
-  seeOutfit() {
-    // R5: render through the proxy and switch to the result view.
+  async seeOutfit() {
+    const garments = chainOrder(state.outfit, state.byId);
+    if (!garments.length) return;
+    const key = await lookKey(state.outfit, state.byId);
+    state.view = 'result';
+
+    // Rendered this exact look before: show it straight away.
+    const saved = await getSavedRender(key);
+    if (saved) {
+      showResult({ key, garments, steps: [], status: 'done', imageUrl: URL.createObjectURL(saved) });
+      return;
+    }
+
+    showResult({ key, garments, steps: garments.map((g) => ({ category: g.category, status: 'waiting' })), status: 'running' });
+    // The render keeps going if the user goes back to edit; its result is saved
+    // either way. Updates only apply while this look is still the one on screen.
+    const current = () => (state.result?.key === key ? state.result : null);
+    try {
+      const blob = await styleOutfit(state.outfit, state.byId, (e) => {
+        const r = current();
+        if (r) applyEvent(r, e);
+        render();
+      });
+      const r = current();
+      if (r) Object.assign(r, { status: 'done', imageUrl: URL.createObjectURL(blob) });
+    } catch (err) {
+      const r = current();
+      if (r) Object.assign(r, { status: 'error', error: err instanceof RenderError ? err.message : 'Something went wrong. Please try again.' });
+      if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
+    }
+    render();
+  },
+
+  editLook() {
+    state.view = 'build';
+    render();
   },
 };
+
+function showResult(r: RenderState): void {
+  if (state.result?.imageUrl) URL.revokeObjectURL(state.result.imageUrl);
+  state.result = r;
+  render();
+}
+
+// The server's plan says which steps are already made (cached) and which it will make.
+function applyEvent(r: RenderState, e: RenderEvent): void {
+  if (e.type === 'plan') {
+    r.steps = e.steps.map((s) => ({ category: s.category, status: s.cached ? 'done' : 'waiting' }));
+    // Hide the mannequin step unless it's actually being made (only the very first time).
+    r.steps = r.steps.filter((s) => s.category !== 'base' || s.status !== 'done');
+  } else if (e.type === 'step') {
+    const step = r.steps.find((s) => s.category === e.category);
+    if (step) step.status = e.status;
+  }
+}
 
 async function upload(file: File): Promise<void> {
   const id = crypto.randomUUID();
@@ -101,8 +156,13 @@ async function upload(file: File): Promise<void> {
 
 function render(): void {
   $('draft').replaceChildren(...(state.draft ? [draftView(state.draft, actions)] : []));
-  $('look').replaceChildren(lookView(state, actions));
-  $('library').replaceChildren(...libraryView(state, actions).childNodes);
+  const showResult = state.view === 'result' && state.result;
+  $('result').replaceChildren(...(showResult ? [resultView(state.result!, actions)] : []));
+  $('look').hidden = $('library').hidden = !!showResult;
+  if (!showResult) {
+    $('look').replaceChildren(lookView(state, actions));
+    $('library').replaceChildren(...libraryView(state, actions).childNodes);
+  }
 }
 
 async function refresh(): Promise<void> {
