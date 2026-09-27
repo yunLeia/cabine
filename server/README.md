@@ -1,19 +1,21 @@
 # Cabine server (Vercel)
 
-One function, `POST /api/style`, that renders an outfit with FASHN. See
-`docs/decisions.md` D13 and D14.
+One function, `POST /api/style`, that renders an outfit in one call. See
+`docs/decisions.md` D13, D14 and D16.
 
 ## What it owns
 
-- The FASHN model and settings (`TRYON`, `BASE`, `tryOnPrompt` in `api/style.ts`): a bare
-  headless mannequin on white, and a Try-On Max prompt per step that keeps it a mannequin,
-  names the garment (optional `title`), sets the layering, and asks for fidelity
-- Layering order: bottom → dress → top → outerwear → shoes
-- The step cache: each chain step is stored in private Vercel Blob under a key
-  derived from everything that affects it (previous step, garment image hash,
-  settings). Changing only the last garment re-renders one step.
+- The render provider, behind the `RenderProvider` interface in `api/style.ts`.
+  Today that's FASHN: the garments are placed side by side on white in one image
+  (`composeGarments`), and one Try-On Max call dresses a pinned headless mannequin
+  (`assets/base-mannequin.jpg`) with a prompt built from the categories and titles
+  (`fashnPrompt`). The result is trimmed to fill the frame.
+- The whole-look cache in private Vercel Blob (`looks/<hash>.jpg`), keyed by the
+  provider id and each garment's category, image hash and title. The same look
+  again is free.
 - Spending limits: max 5 garments, 3 MB per image, and a daily credit cap
   (`usage/YYYY-MM-DD.json`, updated with etag-based optimistic concurrency).
+- Timing logs per look and per provider call (`vercel logs`).
 
 ## Request / response
 
@@ -26,11 +28,8 @@ Authorization: Bearer <CABINE_CLIENT_KEY>
 Response: `application/x-ndjson`, one event per line:
 
 ```
-{"type":"plan","steps":[{"category":"base","cached":true},{"category":"bottom","cached":false},...],"credits":2}
-{"type":"step","index":1,"category":"bottom","status":"running"}
-{"type":"step","index":1,"category":"bottom","status":"done","seconds":9.8}
-...
-{"type":"result","image":"data:image/jpeg;base64,...","credits":2}
+{"type":"plan","cached":false,"credits":1}
+{"type":"result","image":"data:image/jpeg;base64,...","credits":1}
 ```
 
 or `{"type":"error","code":"daily_limit"|"render_failed","message":"..."}`.

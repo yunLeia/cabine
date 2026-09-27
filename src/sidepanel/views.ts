@@ -1,14 +1,12 @@
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Outfit } from '../shared/types';
 import { h } from './dom';
 import { imageUrl } from './image-urls';
-import type { ProgressStep } from './render';
 
 export interface RenderState {
   key: string; // which look this is (render.ts lookKey)
   garments: Garment[]; // the pieces, in layering order, as they were when requested
-  steps: ProgressStep[]; // what's left to make, from the server's plan
   status: 'running' | 'done' | 'error';
-  preview?: string; // the latest finished step, shown while the rest renders
+  cached?: boolean; // the server already had this look: it'll be back in a moment
   imageUrl?: string;
   error?: string;
 }
@@ -179,29 +177,15 @@ export function libraryView(s: ViewState, a: Actions): HTMLElement {
 
 const pieceName = (g: Garment) => g.title ?? CATEGORY_LABEL[g.category];
 
+// One render per look, so there's nothing to tick off: just say what's happening
+// and roughly how long it takes. The pieces are listed below the frame.
 function progressView(r: RenderState): HTMLElement {
-  const byCategory = new Map(r.garments.map((g) => [g.category, g]));
-  const label = (c: Category | 'base') => (c === 'base' ? 'Mannequin (first time only)' : pieceName(byCategory.get(c)!));
-  const pieces = r.steps.filter((s) => s.category !== 'base');
-  const done = pieces.filter((s) => s.status === 'done').length;
   return h(
     'div',
-    { class: r.preview ? 'progress with-preview' : 'progress', role: 'status', 'aria-live': 'polite' },
-    r.preview && h('img', { class: 'render-img preview', src: r.preview, alt: '' }),
+    { class: 'progress', role: 'status', 'aria-live': 'polite' },
+    h('span', { class: 'spinner', 'aria-hidden': 'true' }),
     h('p', { class: 'progress-title' }, 'Styling your look…'),
-    h(
-      'ol',
-      { class: 'progress-steps' },
-      ...r.steps.map((s) =>
-        h(
-          'li',
-          { class: `progress-step ${s.status}` },
-          h('span', { class: 'progress-mark', 'aria-hidden': 'true' }, s.status === 'done' ? '✓' : s.status === 'running' ? '●' : '○'),
-          s.status === 'running' ? `Adding ${label(s.category)}…` : label(s.category),
-        ),
-      ),
-    ),
-    pieces.length > 0 && h('p', { class: 'muted small' }, `${done} of ${pieces.length} · about 15 seconds per piece`),
+    h('p', { class: 'muted small' }, r.cached ? 'Almost there' : `${r.garments.length} piece${r.garments.length > 1 ? 's' : ''} · about 15 seconds`),
   );
 }
 

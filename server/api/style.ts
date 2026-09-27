@@ -1,64 +1,45 @@
-// POST /api/style: render an outfit by chaining FASHN try-ons (docs/decisions.md D13, D14).
+// POST /api/style: render an outfit in one call (docs/decisions.md D13, D14, D16).
 //
-// The extension sends the selected garments' original images and categories.
-// This function owns everything that costs money: the FASHN model and settings,
-// the layering order, the step cache, and the spending limits. It streams
-// progress as newline-delimited JSON so the panel can show each step.
+// The extension sends the selected garments' original images, categories and
+// titles. This function owns everything that costs money: which render provider
+// and settings, the whole-look cache, and the spending limits. It streams a
+// small NDJSON progress feed (plan, then result) so the panel knows right away
+// whether the look was cached, and the connection stays alive while it renders.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { BlobPreconditionFailedError, get, put } from '@vercel/blob';
+import sharp from 'sharp';
 
-// ---- Render configuration (bump PROMPT_VERSION to invalidate cached steps) ----
-
-type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
-const CHAIN_ORDER: readonly Category[] = ['bottom', 'dress', 'top', 'outerwear', 'shoes']; // inner layers first
-const TRYON = { model: 'tryon-max', generation_mode: 'fast', resolution: '1k' } as const;
-const PROMPT_VERSION = 2;
-
-// Try-On Max takes a free-text prompt. FASHN's docs only mention people, so the
-// prompt is what keeps the base a mannequin (tested in scripts/fashn-trial).
-// It also says which garment to take from a busy on-model photo, how it layers,
-// and to stay faithful: the render is what the shopper judges.
-const KEEP_MANNEQUIN =
-  'Keep the mannequin exactly as it is: a white matte headless store mannequin with no skin, no head and no hair. Do not turn it into a person. Keep the plain white background with no shadows.';
-const FAITHFUL =
-  'Reproduce the garment exactly: color, material, texture, silhouette, length, sleeves, neckline, buttons, pockets and collar. Keep its full sleeves even over another layer. Do not add, remove or redesign any details.';
-const LAYERING: Record<Category, string> = {
-  bottom: 'Put it on the mannequin.',
-  dress: 'Put it on the mannequin.',
-  top: 'Worn over the bottom.',
-  outerwear: 'Worn open over the top.',
-  shoes: "On the mannequin's feet.",
-};
-
-function tryOnPrompt(item: Item): string {
-  const what = item.title ? `the ${item.category} ("${item.title}")` : `the ${item.category}`;
-  return `Take only ${what} from the reference image, ignoring any other clothing or people in it. ${LAYERING[item.category]} ${FAITHFUL} ${KEEP_MANNEQUIN}`;
-}
-
-// The fixed base every outfit is tried on (generated once, then cached forever):
-// a bare headless mannequin on white, so only the chosen pieces show.
-const BASE = {
-  model: 'model-create',
-  inputs: {
-    prompt:
-      'Full-body studio product photo of a white matte fiberglass store display mannequin, not a person, headless, ' +
-      'the body ends at the neck with a flat cap, standing straight facing the camera, arms relaxed slightly away from the body, ' +
-      'legs straight, no clothing, no shoes, pure white seamless background, no shadows, no floor line, flat even lighting, ' +
-      'the entire mannequin in frame from neck to feet',
-    aspect_ratio: '2:3',
-    resolution: '1k',
-    generation_mode: 'fast',
-    seed: 42,
-  },
-} as const;
+export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
+const LAYER_ORDER: readonly Category[] = ['bottom', 'dress', 'top', 'outerwear', 'shoes']; // inner layers first
 
 const MAX_ITEMS = 5;
 const MAX_IMAGE_BYTES = 3_000_000; // after base64 decoding; the extension downsizes before sending
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']); // what FASHN accepts
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const EXCLUSIVE: [Category, Category][] = [['dress', 'top'], ['dress', 'bottom']];
 
-// ---- Dependencies (swapped for fakes in tests) ---------------------------------
+// ---- The render provider abstraction -------------------------------------------------
+// Everything model-specific lives behind this interface: swapping FASHN for another
+// model means writing a new provider, not touching validation, cache or limits.
+
+export interface Item {
+  category: Category;
+  title?: string; // product name, tells the model which garment to take from a busy photo
+  bytes: Uint8Array;
+  mime: string;
+  hash: string;
+}
+
+export interface RenderProvider {
+  // Identifies the model, settings and prompt version. Part of the cache key, so
+  // changing any of them never serves a render made the old way.
+  id: string;
+  credits: number; // per look
+  render(items: Item[]): Promise<Uint8Array>; // JPEG bytes of the styled look
+}
+
+// ---- Other dependencies (swapped for fakes in tests) ------------------------------------
 
 export interface Stored {
   bytes: Uint8Array;
@@ -73,40 +54,28 @@ export interface Store {
 
 export class ConflictError extends Error {}
 
-export interface Fashn {
-  run(model: string, inputs: Record<string, unknown>): Promise<Uint8Array>; // resolves to JPEG bytes
-}
-
 export interface Deps {
   store: Store;
-  fashn: Fashn;
+  provider: RenderProvider;
   clientKey: string;
   dailyCreditLimit: number;
   today?: () => string;
 }
 
-// ---- Request validation ---------------------------------------------------------
-
-interface Item {
-  category: Category;
-  title?: string; // product name, tells FASHN which garment to take from the photo
-  bytes: Uint8Array;
-  mime: string;
-  hash: string;
-}
+// ---- Request validation ----------------------------------------------------------------
 
 class RequestError extends Error {}
 
 const sha = (data: Uint8Array | string) => createHash('sha256').update(data).digest('hex');
 
-function parseItems(body: unknown): Item[] {
+export function parseItems(body: unknown): Item[] {
   const items = (body as { items?: unknown })?.items;
   if (!Array.isArray(items) || items.length === 0) throw new RequestError('items must be a non-empty array');
   if (items.length > MAX_ITEMS) throw new RequestError(`at most ${MAX_ITEMS} items`);
 
   const parsed = items.map((raw, i): Item => {
     const { category, image, title } = (raw ?? {}) as { category?: unknown; image?: unknown; title?: unknown };
-    if (typeof category !== 'string' || !CHAIN_ORDER.includes(category as Category)) {
+    if (typeof category !== 'string' || !LAYER_ORDER.includes(category as Category)) {
       throw new RequestError(`items[${i}].category is invalid`);
     }
     const match = typeof image === 'string' ? /^data:([^;,]+);base64,(.+)$/.exec(image) : null;
@@ -123,77 +92,42 @@ function parseItems(body: unknown): Item[] {
   for (const [a, b] of EXCLUSIVE) {
     if (categories.includes(a) && categories.includes(b)) throw new RequestError(`${a} can't be combined with ${b}`);
   }
-  return parsed.sort((x, y) => CHAIN_ORDER.indexOf(x.category) - CHAIN_ORDER.indexOf(y.category));
+  return parsed.sort((x, y) => LAYER_ORDER.indexOf(x.category) - LAYER_ORDER.indexOf(y.category));
 }
 
-// ---- The chain --------------------------------------------------------------------
+// ---- The render: whole-look cache, then one provider call -----------------------------
 
-// Each step is content-addressed by everything that affects its output, including
-// the previous step's key. So a cached step is valid whenever its key matches,
-// and changing only the last garment reuses every step before it.
-const baseKey = sha(JSON.stringify(BASE));
-const stepKey = (prevKey: string, item: Item) =>
-  sha(JSON.stringify([prevKey, item.category, item.hash, TRYON, PROMPT_VERSION, tryOnPrompt(item)]));
-const stepPath = (key: string) => `steps/${key}.jpg`;
+// A look is identified by its garments (content hashes, so a replaced image is a
+// new look) plus the provider id. The same look again is free and instant.
+const lookKey = (items: Item[], provider: RenderProvider) =>
+  sha(JSON.stringify([provider.id, items.map((it) => [it.category, it.hash, it.title ?? ''])]));
+const lookPath = (key: string) => `looks/${key}.jpg`;
 
 type Event =
-  | { type: 'plan'; steps: { category: Category | 'base'; cached: boolean }[]; credits: number }
-  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number; image?: string }
+  | { type: 'plan'; cached: boolean; credits: number }
   | { type: 'result'; image: string; credits: number }
   | { type: 'error'; code: string; message: string };
 
-async function renderChain(items: Item[], deps: Deps, emit: (e: Event) => void): Promise<void> {
-  const keys = [baseKey];
-  for (const item of items) keys.push(stepKey(keys[keys.length - 1], item));
+async function renderLook(items: Item[], deps: Deps, emit: (e: Event) => void): Promise<void> {
+  const started = Date.now();
+  const path = lookPath(lookKey(items, deps.provider));
+  const hit = await deps.store.read(path);
+  const credits = hit ? 0 : deps.provider.credits;
+  emit({ type: 'plan', cached: !!hit, credits });
 
-  // Find the furthest step that's already rendered; everything after it must be made.
-  let from = -1;
-  let current: Uint8Array | null = null;
-  for (let i = keys.length - 1; i >= 0; i--) {
-    const hit = await deps.store.read(stepPath(keys[i]));
-    if (hit) {
-      from = i;
-      current = hit.bytes;
-      break;
-    }
+  let image = hit?.bytes;
+  if (!image) {
+    await reserveCredits(credits, deps);
+    image = await deps.provider.render(items);
+    await deps.store.write(path, image, 'image/jpeg');
   }
-
-  const labels: (Category | 'base')[] = ['base', ...items.map((it) => it.category)];
-  const credits = keys.length - 1 - from; // one credit per missing step (fast, 1k)
-  emit({ type: 'plan', steps: labels.map((category, i) => ({ category, cached: i <= from })), credits });
-
-  if (credits > 0) await reserveCredits(credits, deps);
-
-  for (let i = from + 1; i < keys.length; i++) {
-    emit({ type: 'step', index: i, category: labels[i], status: 'running' });
-    const started = Date.now();
-    current =
-      i === 0
-        ? await deps.fashn.run(BASE.model, { ...BASE.inputs, output_format: 'jpeg', return_base64: true })
-        : await deps.fashn.run(TRYON.model, {
-            model_image: dataUri(current!, 'image/jpeg'),
-            product_image: dataUri(items[i - 1].bytes, items[i - 1].mime),
-            generation_mode: TRYON.generation_mode,
-            resolution: TRYON.resolution,
-            output_format: 'jpeg',
-            return_base64: true,
-            prompt: tryOnPrompt(items[i - 1]),
-          });
-    await deps.store.write(stepPath(keys[i]), current, 'image/jpeg');
-    const seconds = (Date.now() - started) / 1000;
-    console.log(JSON.stringify({ event: 'step', index: i, category: labels[i], seconds, of: keys.length - 1 - from }));
-    // Each step's image goes to the panel right away, so the shopper watches the
-    // mannequin get dressed instead of staring at a spinner.
-    emit({ type: 'step', index: i, category: labels[i], status: 'done', seconds, image: dataUri(current, 'image/jpeg') });
-  }
-
-  console.log(JSON.stringify({ event: 'result', steps: keys.length, cached: from + 1, credits }));
-  emit({ type: 'result', image: dataUri(current!, 'image/jpeg'), credits });
+  console.log(JSON.stringify({ event: 'look', provider: deps.provider.id, pieces: items.length, cached: !!hit, credits, seconds: (Date.now() - started) / 1000 }));
+  emit({ type: 'result', image: dataUri(image, 'image/jpeg'), credits });
 }
 
 const dataUri = (bytes: Uint8Array, mime: string) => `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
 
-// ---- Spending limit: a daily credit counter with optimistic concurrency ----------
+// ---- Spending limit: a daily credit counter with optimistic concurrency ----------------
 
 class LimitError extends Error {}
 
@@ -216,7 +150,7 @@ async function reserveCredits(n: number, deps: Deps): Promise<void> {
   throw new Error('Could not update the usage counter');
 }
 
-// ---- HTTP handler --------------------------------------------------------------------
+// ---- HTTP handler ---------------------------------------------------------------------------
 
 function authorized(request: Request, clientKey: string): boolean {
   const given = Buffer.from(request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '');
@@ -242,7 +176,7 @@ export function createHandler(getDeps: () => Deps) {
       async start(controller) {
         const emit = (e: Event) => controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
         try {
-          await renderChain(items, deps, emit);
+          await renderLook(items, deps, emit);
         } catch (err) {
           const code = err instanceof LimitError ? 'daily_limit' : 'render_failed';
           console.error('[style]', code, err);
@@ -252,13 +186,122 @@ export function createHandler(getDeps: () => Deps) {
         }
       },
     });
-    // Streamed so the client sees progress during the ~10 s per step, and so an
-    // idle connection isn't dropped mid-render.
     return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' } });
   };
 }
 
-// ---- Production wiring: private Vercel Blob + the real FASHN API ---------------------
+// ---- FASHN provider: every garment in one Try-On Max call ------------------------------
+// Try-On Max takes one product image per call, so the garments are placed side by
+// side on white in a single image, and the prompt says which is which and how to
+// wear them. Tested against chaining one call per garment (scripts/fashn-trial):
+// ~15 s instead of ~40 s, 1 credit per look, and more faithful (D16).
+
+const FASHN = { model: 'tryon-max', generation_mode: 'fast', resolution: '1k' } as const;
+const PROMPT_VERSION = 3;
+
+const KEEP_MANNEQUIN =
+  'Keep the mannequin exactly as it is: a white matte headless store mannequin with no skin, no head and no hair. Do not turn it into a person. Keep the plain white background with no shadows.';
+const FAITHFUL =
+  'Reproduce every garment exactly: color, material, texture, silhouette, length, sleeves, neckline, buttons, pockets and collar. Keep full sleeves even over another layer. Do not add, remove or redesign any details.';
+const WEAR: Record<Category, string> = {
+  bottom: 'the bottom',
+  dress: 'the dress',
+  top: 'the top worn over the bottom',
+  outerwear: 'the outerwear worn open over everything else',
+  shoes: "the shoes on the mannequin's feet",
+};
+const POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
+
+export function fashnPrompt(items: Item[]): string {
+  const layout = items
+    .map((it, i) => `${POSITIONS[i]} from the left, the ${it.category}${it.title ? ` ("${it.title}")` : ''}`)
+    .join('; ');
+  const count = items.length === 1 ? 'one garment' : `${items.length} separate garments side by side`;
+  return (
+    `The reference image shows ${count}: ${layout}. ` +
+    'Some may be photographed on a person or next to other clothing: take only these garments and ignore any people and other clothes. ' +
+    `Dress the mannequin in ${items.length === 1 ? 'it' : 'all of them at once'}: ${items.map((it) => WEAR[it.category]).join(', ')}. ` +
+    `${FAITHFUL} ${KEEP_MANNEQUIN}`
+  );
+}
+
+// Garments left to right in layering order, each scaled to the same height on white.
+export async function composeGarments(items: Item[], height = 900, gap = 40): Promise<Buffer> {
+  const tiles = await Promise.all(
+    items.map((it) => sharp(it.bytes).flatten({ background: '#ffffff' }).resize({ height }).jpeg({ quality: 92 }).toBuffer({ resolveWithObject: true })),
+  );
+  const width = tiles.reduce((w, t) => w + t.info.width, 0) + gap * (tiles.length + 1);
+  let left = gap;
+  const composite = tiles.map((t) => {
+    const placed = { input: t.data, left, top: gap };
+    left += t.info.width + gap;
+    return placed;
+  });
+  return sharp({ create: { width, height: height + 2 * gap, channels: 3, background: '#ffffff' } })
+    .composite(composite)
+    .jpeg({ quality: 92 })
+    .toBuffer();
+}
+
+// The mannequin sits small in FASHN's frame; trim the white margin so the look
+// fills the panel, keeping a little breathing room.
+async function fillFrame(jpeg: Uint8Array): Promise<Uint8Array> {
+  try {
+    const { data, info } = await sharp(jpeg).trim({ background: '#ffffff', threshold: 12 }).toBuffer({ resolveWithObject: true });
+    const pad = Math.round(Math.max(info.width, info.height) * 0.05);
+    return new Uint8Array(
+      await sharp(data).extend({ top: pad, bottom: pad, left: pad, right: pad, background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer(),
+    );
+  } catch {
+    return jpeg; // nothing to trim
+  }
+}
+
+export function fashnProvider(apiKey: () => string, base: () => Promise<Uint8Array>): RenderProvider {
+  return {
+    id: `fashn:${FASHN.model}:${FASHN.generation_mode}:${FASHN.resolution}:base-mannequin-v1:prompt-v${PROMPT_VERSION}`,
+    credits: 1,
+    async render(items) {
+      const t = Date.now();
+      const collage = await composeGarments(items);
+      const out = await fashnRun(apiKey(), FASHN.model, {
+        model_image: dataUri(await base(), 'image/jpeg'),
+        product_image: dataUri(collage, 'image/jpeg'),
+        prompt: fashnPrompt(items),
+        generation_mode: FASHN.generation_mode,
+        resolution: FASHN.resolution,
+        output_format: 'jpeg',
+        return_base64: true,
+      });
+      console.log(JSON.stringify({ event: 'fashn', model: FASHN.model, pieces: items.length, seconds: (Date.now() - t) / 1000 }));
+      return fillFrame(out);
+    },
+  };
+}
+
+async function fashnRun(apiKey: string, model: string, inputs: Record<string, unknown>): Promise<Uint8Array> {
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const res = await fetch('https://api.fashn.ai/v1/run', { method: 'POST', headers, body: JSON.stringify({ model_name: model, inputs }) });
+  const body = (await res.json()) as { id?: string; error?: unknown };
+  if (!res.ok || !body.id) throw new Error(`FASHN run ${res.status}: ${JSON.stringify(body.error ?? body)}`);
+  for (const deadline = Date.now() + 120_000; Date.now() < deadline; ) {
+    await new Promise((r) => setTimeout(r, 1000)); // FASHN allows 50 status checks per 10 s
+    const s = (await (await fetch(`https://api.fashn.ai/v1/status/${body.id}`, { headers })).json()) as {
+      status: string;
+      output?: string[];
+      error?: { name: string; message: string } | null;
+    };
+    if (s.status === 'failed') throw new Error(`FASHN ${s.error?.name}: ${s.error?.message}`);
+    if (s.status === 'completed' && s.output?.[0]) {
+      const out = s.output[0];
+      if (out.startsWith('data:')) return new Uint8Array(Buffer.from(out.split(',')[1], 'base64'));
+      return new Uint8Array(await (await fetch(out)).arrayBuffer());
+    }
+  }
+  throw new Error('FASHN timed out after 120 s');
+}
+
+// ---- Production wiring: private Vercel Blob + FASHN ---------------------------------------
 
 const blobStore: Store = {
   async read(path) {
@@ -285,43 +328,21 @@ const blobStore: Store = {
   },
 };
 
-export function fashnClient(apiKey: string): Fashn {
-  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
-  return {
-    async run(model, inputs) {
-      const res = await fetch('https://api.fashn.ai/v1/run', { method: 'POST', headers, body: JSON.stringify({ model_name: model, inputs }) });
-      const body = (await res.json()) as { id?: string; error?: unknown };
-      if (!res.ok || !body.id) throw new Error(`FASHN run ${res.status}: ${JSON.stringify(body.error ?? body)}`);
-      for (const deadline = Date.now() + 120_000; Date.now() < deadline; ) {
-        await new Promise((r) => setTimeout(r, 1000)); // FASHN allows 50 status checks per 10 s
-        const s = (await (await fetch(`https://api.fashn.ai/v1/status/${body.id}`, { headers })).json()) as {
-          status: string;
-          output?: string[];
-          error?: { name: string; message: string } | null;
-        };
-        if (s.status === 'failed') throw new Error(`FASHN ${s.error?.name}: ${s.error?.message}`);
-        if (s.status === 'completed' && s.output?.[0]) {
-          const out = s.output[0];
-          if (out.startsWith('data:')) return new Uint8Array(Buffer.from(out.split(',')[1], 'base64'));
-          return new Uint8Array(await (await fetch(out)).arrayBuffer());
-        }
-      }
-      throw new Error('FASHN timed out after 120 s');
-    },
-  };
-}
-
 function env(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing environment variable ${name}`);
   return v;
 }
 
+// The pinned base: one reviewed headless mannequin on white (scripts/fashn-trial,
+// seed 11), so every look uses the same figure. Bundled via vercel.json includeFiles.
+let baseImage: Promise<Uint8Array> | undefined;
+const loadBase = () => (baseImage ??= readFile(new URL('../assets/base-mannequin.jpg', import.meta.url)).then((b) => new Uint8Array(b)));
+
 export const POST = createHandler(() => ({
   store: blobStore,
-  // Read the key only when rendering, so auth and validation work (and can be
-  // checked after deploying) before a FASHN key is configured.
-  fashn: { run: (model, inputs) => fashnClient(env('FASHN_API_KEY')).run(model, inputs) },
+  // The FASHN key is read only when rendering, so auth and validation work without it.
+  provider: fashnProvider(() => env('FASHN_API_KEY'), loadBase),
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 30),
 }));

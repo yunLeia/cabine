@@ -186,3 +186,30 @@ docs/
   - Small details can be invented; the fidelity wording reduces this but can't guarantee it.
   - Store titles go into prompts, so they're cleaned (letters, digits and basic punctuation, max 80 characters).
 - **Revisit when:** M1.6 shows colour or detail errors that affect decisions, or FASHN opens its multi-reference Agent in the API.
+
+## D16. One render call per look, behind a provider interface
+
+- **Context:** the chained render (D14: one Try-On Max call per garment) took ~55 s for 3 pieces the first time (~40 s after), cost 1–3 credits per change, and redrew the whole outfit at every step. Detail drifted: a jacket was rendered like a vest over a knit. Model Create also ignored "headless" once.
+- **Options:**
+  - Keep the chain and tune it.
+  - All garments in one Try-On Max call, placed side by side in a single product image.
+  - A general multi-reference image model (like FASHN's Studio Agent, which isn't in the API).
+- **Test** (`scripts/fashn-trial/experiment.ts`, 4 credits):
+  - The one-call version rendered in **~15 s for 1 credit**.
+  - It kept the jacket's full sleeves, layered a knit under an open jacket and a cami under an open trench, took only the garments from on-model store photos, and showed the jeans at full length with frayed hems.
+- **Decision:**
+  - **One call per look.**
+    - The proxy composes the garments left to right in layering order on white (`sharp`).
+    - It calls Try-On Max once onto a **pinned base**: one reviewed headless mannequin on pure white (seed 11), bundled with the function and never regenerated.
+    - The prompt names each garment by position, category and title, says how they layer, and repeats the fidelity and mannequin rules.
+    - The output is trimmed to fill the frame.
+  - **Whole-look cache:** keyed by the provider id and each garment's category, image hash and title. The same look is free; any change costs 1 credit.
+  - **Provider interface** (`RenderProvider`: `id`, `credits`, `render(items)`): validation, cache, limits, streaming and logs don't know which model is used. Switching models means writing a new provider, and its id makes old cached looks unreachable automatically.
+  - **Kept:** original garment images as input, 1 s status polling, timing logs, the daily cap.
+  - **Removed:** chained rendering, per-step caching, step-by-step progress. The panel shows "Styling your look… N pieces · about 15 seconds".
+- **Tradeoffs:**
+  - No partial reuse: swapping only the jacket still re-renders the whole look (but for 1 credit, the chain's best case).
+  - Up to 5 garments must share one ~1K image, so fine detail may drop with many pieces.
+  - A new dependency (`sharp`, native but standard on Vercel).
+- **Revisit when:** looks with 4–5 pieces lose detail (try 2K resolution, or send fewer pieces per image), or another model beats FASHN on faithfulness or cost; add it as a provider and compare.
+- **Supersedes:** the chain parts of D13 and D14, and D15's Model Create base (the prompts carry over).

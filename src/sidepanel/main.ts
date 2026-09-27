@@ -93,11 +93,11 @@ const actions: Actions = {
     // Rendered this exact look before: show it straight away.
     const saved = await getSavedRender(key);
     if (saved) {
-      showResult({ key, garments, steps: [], status: 'done', imageUrl: URL.createObjectURL(saved) });
+      showResult({ key, garments, status: 'done', imageUrl: URL.createObjectURL(saved) });
       return;
     }
 
-    showResult({ key, garments, steps: garments.map((g) => ({ category: g.category, status: 'waiting' })), status: 'running' });
+    showResult({ key, garments, status: 'running' });
     // The render keeps going if the user goes back to edit; its result is saved
     // either way. Updates only apply while this look is still the one on screen.
     const current = () => (state.result?.key === key ? state.result : null);
@@ -129,17 +129,8 @@ function showResult(r: RenderState): void {
   render();
 }
 
-// The server's plan says which steps are already made (cached) and which it will make.
 function applyEvent(r: RenderState, e: RenderEvent): void {
-  if (e.type === 'plan') {
-    r.steps = e.steps.map((s) => ({ category: s.category, status: s.cached ? 'done' : 'waiting' }));
-    // Hide the mannequin step unless it's actually being made (only the very first time).
-    r.steps = r.steps.filter((s) => s.category !== 'base' || s.status !== 'done');
-  } else if (e.type === 'step') {
-    const step = r.steps.find((s) => s.category === e.category);
-    if (step) step.status = e.status;
-    if (e.image) r.preview = e.image;
-  }
+  if (e.type === 'plan') r.cached = e.cached;
 }
 
 async function upload(file: File): Promise<void> {

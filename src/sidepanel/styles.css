@@ -101,20 +101,16 @@ button { font: inherit; color: inherit; }
   display: grid; place-items: center; min-height: 420px; border-radius: 12px;
   background: #fff; border: 1px solid var(--line); overflow: hidden;
 }
-.render-img { width: 100%; height: auto; display: block; }
-.progress { padding: 24px; width: 100%; }
-.progress.with-preview { padding: 0 0 16px; }
-.progress.with-preview > :not(.preview) { margin-left: 16px; margin-right: 16px; }
-.render-img.preview { margin-bottom: 12px; opacity: 0.85; }
-.progress-title { font-weight: 600; margin: 0 0 12px; }
-.progress-steps { list-style: none; margin: 0 0 10px; padding: 0; }
-.progress-step { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; color: var(--muted); }
-.progress-step.done { color: var(--ink); }
-.progress-step.running { color: var(--accent); font-weight: 500; }
-.progress-mark { width: 14px; flex: none; text-align: center; }
-.progress-step.running .progress-mark { animation: pulse 1.2s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .progress-step.running .progress-mark { animation: none; } }
+.render-img { width: 100%; height: auto; max-height: 72vh; object-fit: contain; display: block; }
+.progress { padding: 24px; text-align: center; }
+.progress-title { font-weight: 600; margin: 12px 0 4px; }
+.spinner {
+  display: inline-block; width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 .render-error { padding: 24px; text-align: center; }
 .render-error p { margin: 0 0 12px; }
 .result-pieces { list-style: none; margin: 12px 0 0; padding: 0; }

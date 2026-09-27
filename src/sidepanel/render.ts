@@ -1,27 +1,21 @@
 import { chainOrder } from '../shared/outfit';
 import { getImage, putImage } from '../shared/images';
-import type { Category, Garment, Outfit } from '../shared/types';
+import type { Garment, Outfit } from '../shared/types';
 
-// "See the outfit": send the look to the render proxy (server/api/style.ts) and
-// stream its progress. The proxy owns the model, order, cache and spending
-// limits; this side only prepares images and shows what's happening.
+// "See the outfit": send the look to the render proxy (server/api/style.ts). The
+// proxy owns the render provider, the whole-look cache and the spending limits;
+// this side only prepares images and shows what's happening.
 
 const API = import.meta.env.VITE_CABINE_API ?? 'https://cabine-server.vercel.app/api/style';
 const KEY = import.meta.env.VITE_CABINE_CLIENT_KEY ?? '';
 
 // Bump when the server's render settings change, so locally saved results made
 // with the old settings aren't shown again.
-const RENDER_VERSION = 2;
+const RENDER_VERSION = 3;
 
-export type StepStatus = 'waiting' | 'running' | 'done';
-export interface ProgressStep {
-  category: Category | 'base';
-  status: StepStatus;
-}
-
+// One render call per look (D16): the server says whether it's cached, then sends the image.
 export type RenderEvent =
-  | { type: 'plan'; steps: { category: Category | 'base'; cached: boolean }[]; credits: number }
-  | { type: 'step'; index: number; category: Category | 'base'; status: 'running' | 'done'; seconds?: number; image?: string }
+  | { type: 'plan'; cached: boolean; credits: number }
   | { type: 'result'; image: string; credits: number }
   | { type: 'error'; code: string; message: string };
 
@@ -65,7 +59,7 @@ const blobToDataUri = (blob: Blob) =>
 const usefulTitle = (title?: string) => (title && !/^(img|dsc|pxl|photo|screenshot|image)[\s_-]?\d/i.test(title) ? title : undefined);
 
 // ---- Local result cache ---------------------------------------------------------
-// The proxy already caches every step, so a repeat costs no credits; this also
+// The proxy already caches whole looks, so a repeat costs no credits; this also
 // skips the upload and the wait when reopening a look rendered before.
 
 export async function lookKey(outfit: Outfit, byId: Map<string, Garment>): Promise<string> {
@@ -110,7 +104,7 @@ export async function styleOutfit(
     throw new RenderError('rejected', `The server couldn't style this look (${res.status}). ${detail}`.trim());
   }
 
-  // The response is newline-delimited JSON, streamed as each step finishes.
+  // The response is newline-delimited JSON: a plan right away, then the result.
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = '';
   let image: string | null = null;
