@@ -120,3 +120,26 @@ docs/
 - **Not chosen yet:** generic background removal (Apple Vision, remove.bg, RMBG) can't fix this: it treats form + garment as one subject. A clothes-segmentation model labels pixels as top/pants/skirt, so it could remove the form *and* give the category (M1.4). It's unproven on dress-form photos; it needs a trial on the seed photos first.
 - **Tradeoff:** the user fixes each capture by hand. The dress form stays visible.
 - **Revisit when:** M1.6 shows how many captures need fixing. Log how many clicks each capture needed.
+
+## D13. Save originals, label by hand, render with AI only on "Style together"
+
+- **Question:** should Cabine clean up each garment when it's captured, or keep the original and use AI only when generating an outfit?
+- **Options:** clean up every garment on capture · save originals and render only when styling · hybrid (optional cleanup)
+- **Decision:**
+  - Store the original image as captured or uploaded. The user picks the category: Top, Bottom, Outerwear, Dress or Shoes.
+  - The user selects garments into outfit slots and clicks **Style together**. Only then is AI called, through FASHN try-on on a fixed base mannequin/person.
+  - Renders are cached.
+- **Why:** cleaning up at capture adds cost, latency and complexity before we know whether a garment will ever be used. The value moment is the styled outfit, so AI is spent there. Originals stay the source of truth: faithful, and re-renderable later with better models or prompts. We've seen that 2D layers never look worn (D6–D12), and that background removal can't remove dress forms (D10).
+- **How it works (from the FASHN docs):**
+  - Try-on applies one garment per call, so an outfit is a chain in fixed layering order: base → bottom/dress → top → outerwear → shoes.
+  - Each step is cached by `hash(previousStepKey, garmentId, model, promptVersion)`, so changing only the jacket re-runs one step, not the whole outfit.
+  - A 3-piece outfit ≈ 3 credits ≈ $0.23, ~25–30 s.
+  - The original image is still downloaded at capture (retailer URLs expire and block other sites).
+  - The FASHN key lives in a small serverless proxy, never in the extension (D4).
+- **Tradeoff:** no instant styled preview while swapping; the preview is a slot list with thumbnails. Hypothesis: users will take a deliberate "Style together" step because the result is worth it. A backend (the proxy) is now required.
+- **Replaces:** the product role of D6 (background removal), D8 (slot geometry), D10 (seed cleanup) and D12 (fit controls). Those code paths get removed.
+- **Open:**
+  - Does FASHN accept a mannequin/dress form as the base, or does it need a person?
+  - Does quality drift along the chain?
+  - Packshot (Studio) could extract garments later if needed.
+- **Revisit when:** users want faster visual feedback while mixing, renders cost too much per outfit, or chain drift makes a single-call general image model better.
