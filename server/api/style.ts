@@ -289,7 +289,9 @@ function env(name: string): string {
 
 export const POST = createHandler(() => ({
   store: blobStore,
-  fashn: fashnClient(env('FASHN_API_KEY')),
+  // Read the key only when rendering, so auth and validation work (and can be
+  // checked after deploying) before a FASHN key is configured.
+  fashn: { run: (model, inputs) => fashnClient(env('FASHN_API_KEY')).run(model, inputs) },
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 30),
 }));
