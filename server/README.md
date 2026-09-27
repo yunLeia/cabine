@@ -5,7 +5,9 @@ One function, `POST /api/style`, that renders an outfit with FASHN. See
 
 ## What it owns
 
-- The FASHN model and settings (`TRYON`, `BASE`, `PROMPTS` in `api/style.ts`)
+- The FASHN model and settings (`TRYON`, `BASE`, `tryOnPrompt` in `api/style.ts`): a bare
+  headless mannequin on white, and a Try-On Max prompt per step that keeps it a mannequin,
+  names the garment (optional `title`), sets the layering, and asks for fidelity
 - Layering order: bottom → dress → top → outerwear → shoes
 - The step cache: each chain step is stored in private Vercel Blob under a key
   derived from everything that affects it (previous step, garment image hash,
@@ -18,7 +20,7 @@ One function, `POST /api/style`, that renders an outfit with FASHN. See
 ```
 POST /api/style
 Authorization: Bearer <CABINE_CLIENT_KEY>
-{ "items": [{ "category": "top", "image": "data:image/jpeg;base64,..." }, ...] }
+{ "items": [{ "category": "top", "image": "data:image/jpeg;base64,...", "title": "Silk lace cami" }, ...] }
 ```
 
 Response: `application/x-ndjson`, one event per line:

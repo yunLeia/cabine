@@ -13,17 +13,39 @@ import { BlobPreconditionFailedError, get, put } from '@vercel/blob';
 type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
 const CHAIN_ORDER: readonly Category[] = ['bottom', 'dress', 'top', 'outerwear', 'shoes']; // inner layers first
 const TRYON = { model: 'tryon-max', generation_mode: 'fast', resolution: '1k' } as const;
-const PROMPT_VERSION = 1;
-const PROMPTS: Partial<Record<Category, string>> = {}; // e.g. { top: 'tuck in the top' }
+const PROMPT_VERSION = 2;
 
-// The fixed base every outfit is tried on (generated once, then cached forever).
+// Try-On Max takes a free-text prompt. FASHN's docs only mention people, so the
+// prompt is what keeps the base a mannequin (tested in scripts/fashn-trial).
+// It also says which garment to take from a busy on-model photo, how it layers,
+// and to stay faithful: the render is what the shopper judges.
+const KEEP_MANNEQUIN =
+  'Keep the mannequin exactly as it is: a white matte headless store mannequin with no skin, no head and no hair. Do not turn it into a person. Keep the plain white background with no shadows.';
+const FAITHFUL =
+  'Reproduce the garment exactly: color, material, texture, silhouette, length, neckline, buttons, pockets and collar. Do not add, remove or redesign any details.';
+const LAYERING: Record<Category, string> = {
+  bottom: 'Put it on the mannequin.',
+  dress: 'Put it on the mannequin.',
+  top: 'Worn over the bottom.',
+  outerwear: 'Worn open over the top.',
+  shoes: "On the mannequin's feet.",
+};
+
+function tryOnPrompt(item: Item): string {
+  const what = item.title ? `the ${item.category} ("${item.title}")` : `the ${item.category}`;
+  return `Take only ${what} from the reference image, ignoring any other clothing or people in it. ${LAYERING[item.category]} ${FAITHFUL} ${KEEP_MANNEQUIN}`;
+}
+
+// The fixed base every outfit is tried on (generated once, then cached forever):
+// a bare headless mannequin on white, so only the chosen pieces show.
 const BASE = {
   model: 'model-create',
   inputs: {
     prompt:
-      'Full-body studio fashion photo of a woman standing straight, facing the camera, arms relaxed slightly away from the body, ' +
-      'wearing a plain fitted white tank top and plain fitted light grey leggings, white sneakers, neutral expression, ' +
-      'plain light grey seamless background, soft even lighting, entire body in frame from head to feet',
+      'Full-body studio product photo of a white matte fiberglass store display mannequin, not a person, headless, ' +
+      'the body ends at the neck with a flat cap, standing straight facing the camera, arms relaxed slightly away from the body, ' +
+      'legs straight, no clothing, no shoes, pure white seamless background, no shadows, no floor line, flat even lighting, ' +
+      'the entire mannequin in frame from neck to feet',
     aspect_ratio: '2:3',
     resolution: '1k',
     generation_mode: 'fast',
@@ -67,6 +89,7 @@ export interface Deps {
 
 interface Item {
   category: Category;
+  title?: string; // product name, tells FASHN which garment to take from the photo
   bytes: Uint8Array;
   mime: string;
   hash: string;
@@ -82,7 +105,7 @@ function parseItems(body: unknown): Item[] {
   if (items.length > MAX_ITEMS) throw new RequestError(`at most ${MAX_ITEMS} items`);
 
   const parsed = items.map((raw, i): Item => {
-    const { category, image } = (raw ?? {}) as { category?: unknown; image?: unknown };
+    const { category, image, title } = (raw ?? {}) as { category?: unknown; image?: unknown; title?: unknown };
     if (typeof category !== 'string' || !CHAIN_ORDER.includes(category as Category)) {
       throw new RequestError(`items[${i}].category is invalid`);
     }
@@ -90,7 +113,9 @@ function parseItems(body: unknown): Item[] {
     if (!match || !IMAGE_TYPES.has(match[1])) throw new RequestError(`items[${i}].image must be a JPEG, PNG or WebP data URI`);
     const bytes = new Uint8Array(Buffer.from(match[2], 'base64'));
     if (bytes.length > MAX_IMAGE_BYTES) throw new RequestError(`items[${i}].image is larger than ${MAX_IMAGE_BYTES} bytes`);
-    return { category: category as Category, bytes, mime: match[1], hash: sha(bytes) };
+    // The title comes from a store page: keep it short and plain before it goes in a prompt.
+    const cleanTitle = typeof title === 'string' ? title.replace(/[^\p{L}\p{N} .,'&/-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+    return { category: category as Category, title: cleanTitle || undefined, bytes, mime: match[1], hash: sha(bytes) };
   });
 
   const categories = parsed.map((p) => p.category);
@@ -108,7 +133,7 @@ function parseItems(body: unknown): Item[] {
 // and changing only the last garment reuses every step before it.
 const baseKey = sha(JSON.stringify(BASE));
 const stepKey = (prevKey: string, item: Item) =>
-  sha(JSON.stringify([prevKey, item.category, item.hash, TRYON, PROMPT_VERSION, PROMPTS[item.category] ?? '']));
+  sha(JSON.stringify([prevKey, item.category, item.hash, TRYON, PROMPT_VERSION, tryOnPrompt(item)]));
 const stepPath = (key: string) => `steps/${key}.jpg`;
 
 type Event =
@@ -152,7 +177,7 @@ async function renderChain(items: Item[], deps: Deps, emit: (e: Event) => void):
             resolution: TRYON.resolution,
             output_format: 'jpeg',
             return_base64: true,
-            ...(PROMPTS[items[i - 1].category] ? { prompt: PROMPTS[items[i - 1].category] } : {}),
+            prompt: tryOnPrompt(items[i - 1]),
           });
     await deps.store.write(stepPath(keys[i]), current, 'image/jpeg');
     emit({ type: 'step', index: i, category: labels[i], status: 'done', seconds: (Date.now() - started) / 1000 });

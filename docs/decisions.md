@@ -168,3 +168,21 @@ docs/
   - Anyone who knows a step's hash could reuse its cached render. Harmless, since hashes are unguessable and Blob is private.
   - The cache grows without cleanup.
 - **Revisit when:** more than one person uses it (per-user limits need identity), Blob storage cost matters (add cleanup), or request size becomes a problem (upload images once, send hashes).
+
+## D15. The base is a bare headless mannequin, kept by Try-On Max prompts
+
+- **Context:** the first live render used a generated woman as the base. The product wants a mannequin: neutral, not "a specific person". FASHN's docs describe try-on only for people.
+- **Options:** keep a person · a faceless mannequin · a headless mannequin (all via Model Create + Try-On Max prompts) · switch to a general multi-reference image model (like FASHN's Studio Agent, which isn't in the API)
+- **Test** (`scripts/fashn-trial`, 8 credits):
+  - Both mannequin types stayed mannequins through jeans → on-model lace cami → on-model trench, when every step's prompt said so.
+  - The garments were faithful, the coat layered open over the cami, and the jeans showed full length.
+  - Headless invented two small details (an extra button, sleeve straps). Faceless was slightly more faithful.
+- **Decision:**
+  - **Headless** (product preference): bare, no base clothes, so only the chosen pieces appear.
+  - **Pure white background with no shadow**, set in the base prompt (Try-On Max keeps the base's background, so it costs nothing extra per render).
+  - Every try-on prompt says: take only this garment (named by its product title when known) from the reference, its layer ("worn open over the top"), reproduce it exactly with no added details, and keep the mannequin.
+- **Tradeoffs:**
+  - FASHN shifts colours slightly darker (seen twice).
+  - Small details can be invented; the fidelity wording reduces this but can't guarantee it.
+  - Store titles go into prompts, so they're cleaned (letters, digits and basic punctuation, max 80 characters).
+- **Revisit when:** M1.6 shows colour or detail errors that affect decisions, or FASHN opens its multi-reference Agent in the API.
