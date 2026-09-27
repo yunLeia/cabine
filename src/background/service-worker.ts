@@ -102,6 +102,7 @@ async function seedCloset(): Promise<void> {
     await putImage(id, await res.blob());
     added.push({
       id,
+      location: 'closet',
       sourceType: 'closet',
       category: item.category,
       title: item.title,

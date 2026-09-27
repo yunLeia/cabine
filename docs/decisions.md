@@ -228,3 +228,25 @@ docs/
   - The band can't be adjusted.
   - Items captured before this change have no band.
 - **Revisit when:** M1.6 shows bands landing wrong often. Then add an adjustable crop box (the preset becomes its starting position) or AI detection to place it.
+
+## D18. Panel hierarchy: Your Look on top, Fitting Room · My Closet drawers below
+
+- **Context:**
+  - A full-panel result screen broke your context every time you rendered.
+  - A single closet mixed store pieces you're considering with clothes you own.
+  - The band crop (D17) made store photos look worse, not better.
+- **Options:** three peer tabs (Fitting Room · Closet · Looks) · **a workspace on top with source drawers below** · keep the full-screen result
+- **Decision:**
+  - **Your Look** (top) is the workspace: the selected pieces (Trying / With my closet), the slot adders, **See the outfit**, and the **render inside the card**.
+    - Changing a piece dims the render with "Look changed" until you render again.
+    - Coming back to a look shows its saved render.
+  - **Fitting Room** holds store captures as their **original photos, uncropped**, free to add. Tap to wear. Item menu: *Add to My Closet*, *Remove*.
+  - **My Closet** holds what you own: your uploads and items moved over from the Fitting Room. Item menu: *Remove* (plus *Clean up photo*, step b).
+  - A garment's `location` (fittingRoom | closet) is separate from where it came from (`sourceType`). "Trying" means it's in the Fitting Room.
+  - Choosing a slot filters the open drawer, and you can switch drawers while choosing.
+  - **Extraction (step b):** only when an item moves to My Closet and its photo needs it, or on demand for uploads. Renders always use the original photo.
+- **Why:** the top area is what I'm building now, and the bottom is where pieces come from. It matches the product question (does this store piece work with what I own?), and credits are only spent on pieces you keep.
+- **Tradeoffs:**
+  - A dimmed old render still takes space while you edit.
+  - Moving an item between drawers is a menu action, not drag-and-drop.
+- **Supersedes:** D17's band crop (removed), and the full-panel result screen from R5.

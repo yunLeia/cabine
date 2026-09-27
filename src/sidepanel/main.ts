@@ -1,24 +1,24 @@
-import { deleteImage, getImage, putImage } from '../shared/images';
+import { deleteImage, putImage } from '../shared/images';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
-import { KEYS, addGarments, loadState, setDraft, setOutfit } from '../shared/store';
-import { previewCrop } from '../shared/preview';
+import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
-import { RenderError, getSavedRender, lookKey, styleOutfit, type RenderEvent } from './render';
-import { draftView, libraryView, lookView, resultView, type Actions, type RenderState, type ViewState } from './views';
+import { RenderError, getSavedRender, lookKey, styleOutfit } from './render';
+import { draftView, drawersView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
-// Stored state (garments, outfit, draft) is a mirror of chrome.storage.local and
-// only changes through storage writes + onChanged. UI-only state (filter,
-// choosing, view, result) lives here.
+// Stored state (garments, outfit, draft) mirrors chrome.storage.local and only
+// changes through storage writes + onChanged. The rest is UI state.
 const state: ViewState = {
   garments: [],
   byId: new Map(),
   outfit: {},
   draft: null,
+  lookKey: null,
+  render: null,
+  drawer: 'closet',
   filter: 'all',
   choosing: null,
-  view: 'build',
-  result: null,
+  menuFor: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -29,6 +29,8 @@ const actions: Actions = {
     if (!d?.imageId) return;
     const garment: Garment = {
       id: d.id,
+      // Store captures wait in the Fitting Room; your own uploads are yours already.
+      location: d.sourceType === 'shopping' ? 'fittingRoom' : 'closet',
       sourceType: d.sourceType,
       category,
       title: d.title,
@@ -36,12 +38,13 @@ const actions: Actions = {
       sourceImageUrl: d.sourceImageUrl,
       imageId: d.imageId,
       imageVersion: 1,
-      previewCrop: d.sourceType === 'shopping' ? await cropFor(d.imageId, category) : undefined,
       createdAt: Date.now(),
     };
     await addGarments([garment]);
     // A store capture is the piece being considered, so it goes straight into the look.
-    if (garment.sourceType === 'shopping') await setOutfit(toggleInOutfit(state.outfit, garment));
+    if (garment.location === 'fittingRoom') await setOutfit(toggleInOutfit(state.outfit, garment));
+    state.drawer = garment.location;
+    state.filter = 'all';
     await setDraft(null);
   },
 
@@ -52,6 +55,7 @@ const actions: Actions = {
   },
 
   pick(g: Garment) {
+    state.menuFor = null;
     if (state.choosing) {
       // Picking for a slot: wear it (even if it already was) and go back to the look.
       if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
@@ -61,18 +65,19 @@ const actions: Actions = {
       $('look').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    void setOutfit(toggleInOutfit(state.outfit, g)); // browsing: click toggles on/off
+    void setOutfit(toggleInOutfit(state.outfit, g)); // browsing: tap puts it on or takes it off
   },
 
-  remove(category: Category) {
+  takeOff(category: Category) {
     void setOutfit(removeFromOutfit(state.outfit, category));
   },
 
   choose(slot: Category) {
     state.choosing = slot;
     state.filter = slot;
+    state.menuFor = null;
     render();
-    $('library').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('drawers').scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   cancelChoose() {
@@ -86,63 +91,61 @@ const actions: Actions = {
     render();
   },
 
-  async seeOutfit() {
-    const garments = chainOrder(state.outfit, state.byId);
-    if (!garments.length) return;
-    const key = await lookKey(state.outfit, state.byId);
-    state.view = 'result';
-
-    // Rendered this exact look before: show it straight away.
-    const saved = await getSavedRender(key);
-    if (saved) {
-      showResult({ key, garments, status: 'done', imageUrl: URL.createObjectURL(saved) });
-      return;
-    }
-
-    showResult({ key, garments, status: 'running' });
-    // The render keeps going if the user goes back to edit; its result is saved
-    // either way. Updates only apply while this look is still the one on screen.
-    const current = () => (state.result?.key === key ? state.result : null);
-    try {
-      const blob = await styleOutfit(state.outfit, state.byId, (e) => {
-        const r = current();
-        if (r) applyEvent(r, e);
-        render();
-      });
-      const r = current();
-      if (r) Object.assign(r, { status: 'done', imageUrl: URL.createObjectURL(blob) });
-    } catch (err) {
-      const r = current();
-      if (r) Object.assign(r, { status: 'error', error: err instanceof RenderError ? err.message : 'Something went wrong. Please try again.' });
-      if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
-    }
+  openDrawer(drawer) {
+    state.drawer = drawer;
+    // Keep a slot filter while choosing; otherwise start the other drawer unfiltered.
+    if (!state.choosing) state.filter = 'all';
+    state.menuFor = null;
     render();
   },
 
-  editLook() {
-    state.view = 'build';
+  async seeOutfit() {
+    const garments = chainOrder(state.outfit, state.byId);
+    const key = state.lookKey;
+    if (!garments.length || !key) return;
+
+    setRender({ key, count: garments.length, status: 'running' });
+    // The render keeps going if the look changes meanwhile; its result is saved
+    // either way and shown if the user comes back to this look.
+    try {
+      const blob = await styleOutfit(state.outfit, state.byId, (e) => {
+        if (e.type === 'plan' && state.render?.key === key) {
+          state.render.cached = e.cached;
+          render();
+        }
+      });
+      if (state.render?.key === key) setRender({ key, count: garments.length, status: 'done', imageUrl: URL.createObjectURL(blob) });
+    } catch (err) {
+      if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
+      const message = err instanceof RenderError ? err.message : 'Something went wrong. Please try again.';
+      if (state.render?.key === key) setRender({ key, count: garments.length, status: 'error', error: message });
+    }
+  },
+
+  toggleMenu(id) {
+    state.menuFor = id;
     render();
+  },
+
+  async addToCloset(g: Garment) {
+    // Step (b): extract a clean product photo here when the original needs it.
+    state.menuFor = null;
+    await updateGarment(g.id, { location: 'closet' });
+  },
+
+  async removeGarment(g: Garment) {
+    state.menuFor = null;
+    if (!confirm(`Remove "${g.title ?? 'this item'}" from Cabine?`)) return render();
+    await removeGarment(g.id);
+    await setOutfit(pruneOutfit(state.outfit, new Map(state.garments.filter((x) => x.id !== g.id).map((x) => [x.id, x]))));
+    await Promise.all([deleteImage(g.imageId), g.cleanImageId ? deleteImage(g.cleanImageId) : null]);
   },
 };
 
-function showResult(r: RenderState): void {
-  if (state.result?.imageUrl) URL.revokeObjectURL(state.result.imageUrl);
-  state.result = r;
+function setRender(r: RenderState | null): void {
+  if (state.render?.imageUrl && state.render.imageUrl !== r?.imageUrl) URL.revokeObjectURL(state.render.imageUrl);
+  state.render = r;
   render();
-}
-
-function applyEvent(r: RenderState, e: RenderEvent): void {
-  if (e.type === 'plan') r.cached = e.cached;
-}
-
-// Store photos may show a whole person; your own uploads are usually just the garment.
-async function cropFor(imageId: string, category: Category) {
-  const blob = await getImage(imageId);
-  if (!blob) return undefined;
-  const bitmap = await createImageBitmap(blob);
-  const crop = previewCrop(category, bitmap.width, bitmap.height);
-  bitmap.close();
-  return crop;
 }
 
 async function upload(file: File): Promise<void> {
@@ -160,13 +163,8 @@ async function upload(file: File): Promise<void> {
 
 function render(): void {
   $('draft').replaceChildren(...(state.draft ? [draftView(state.draft, actions)] : []));
-  const showResult = state.view === 'result' && state.result;
-  $('result').replaceChildren(...(showResult ? [resultView(state.result!, actions)] : []));
-  $('look').hidden = $('library').hidden = !!showResult;
-  if (!showResult) {
-    $('look').replaceChildren(lookView(state, actions));
-    $('library').replaceChildren(...libraryView(state, actions).childNodes);
-  }
+  $('look').replaceChildren(lookView(state, actions));
+  $('drawers').replaceChildren(...drawersView(state, actions).childNodes);
 }
 
 async function refresh(): Promise<void> {
@@ -175,7 +173,19 @@ async function refresh(): Promise<void> {
   state.byId = new Map(stored.garments.map((g) => [g.id, g]));
   state.outfit = pruneOutfit(stored.outfit, state.byId);
   state.draft = stored.draft;
-  await syncImageUrls([...stored.garments.map((g) => g.imageId), ...(stored.draft?.imageId ? [stored.draft.imageId] : [])]);
+  state.lookKey = chainOrder(state.outfit, state.byId).length ? await lookKey(state.outfit, state.byId) : null;
+  await syncImageUrls([
+    ...stored.garments.flatMap((g) => (g.cleanImageId ? [g.imageId, g.cleanImageId] : [g.imageId])),
+    ...(stored.draft?.imageId ? [stored.draft.imageId] : []),
+  ]);
+
+  // Show a look's saved render when coming back to it; keep an older render
+  // (dimmed) while the look is being changed; clear it when the look is empty.
+  if (!state.lookKey) setRender(null);
+  else if (state.render?.key !== state.lookKey) {
+    const saved = await getSavedRender(state.lookKey);
+    if (saved) setRender({ key: state.lookKey, count: chainOrder(state.outfit, state.byId).length, status: 'done', imageUrl: URL.createObjectURL(saved) });
+  }
   render();
 }
 
@@ -184,6 +194,11 @@ input.addEventListener('change', () => {
   const file = input.files?.[0];
   if (file) void upload(file);
   input.value = ''; // allow picking the same file again
+});
+
+// Close an open item menu when clicking anywhere else.
+document.addEventListener('click', (e) => {
+  if (state.menuFor && !(e.target as Element).closest('.item-wrap')) actions.toggleMenu(null);
 });
 
 chrome.storage.local.onChanged.addListener((changes) => {

@@ -15,7 +15,10 @@ export interface StoredState {
 export async function loadState(): Promise<StoredState> {
   const s = await chrome.storage.local.get([KEYS.garments, KEYS.outfit, KEYS.draft]);
   return {
-    garments: (s[KEYS.garments] as Garment[] | undefined) ?? [],
+    // Garments saved before locations existed: store captures were in the Fitting Room.
+    garments: ((s[KEYS.garments] as Garment[] | undefined) ?? []).map((g) =>
+      g.location ? g : { ...g, location: g.sourceType === 'shopping' ? 'fittingRoom' : 'closet' },
+    ),
     outfit: (s[KEYS.outfit] as Outfit | undefined) ?? {},
     draft: (s[KEYS.draft] as Draft | undefined) ?? null,
   };
@@ -24,6 +27,16 @@ export async function loadState(): Promise<StoredState> {
 export async function addGarments(add: Garment[]): Promise<void> {
   const { garments } = await loadState();
   await chrome.storage.local.set({ [KEYS.garments]: [...garments, ...add] });
+}
+
+export async function updateGarment(id: string, patch: Partial<Garment>): Promise<void> {
+  const { garments } = await loadState();
+  await chrome.storage.local.set({ [KEYS.garments]: garments.map((g) => (g.id === id ? { ...g, ...patch } : g)) });
+}
+
+export async function removeGarment(id: string): Promise<void> {
+  const { garments } = await loadState();
+  await chrome.storage.local.set({ [KEYS.garments]: garments.filter((g) => g.id !== id) });
 }
 
 export const setOutfit = (outfit: Outfit) => chrome.storage.local.set({ [KEYS.outfit]: outfit });

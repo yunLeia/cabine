@@ -78,31 +78,19 @@ button { font: inherit; color: inherit; }
 .primary:disabled { background: var(--line); color: var(--muted); cursor: default; }
 .center { text-align: center; margin-top: 6px; }
 
-/* Library */
-.library { margin: 16px 16px 0; scroll-margin-top: 8px; }
-.choosing { display: flex; align-items: baseline; justify-content: space-between; }
-.choosing h2 { color: var(--accent); }
-.library .chips { margin-bottom: 10px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
-.item {
-  position: relative; aspect-ratio: 3 / 4; padding: 4px; cursor: pointer;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
-}
-.item:hover { border-color: var(--muted); }
-.item[aria-pressed='true'] { border: 2px solid var(--accent); padding: 3px; }
-.item-img { width: 100%; height: 100%; }
-.item .tag { position: absolute; left: 6px; top: 6px; }
-
-/* Result: the render takes over the panel */
+/* Render inside Your Look */
 [hidden] { display: none !important; }
-.result { margin: 8px 16px 0; }
-.back { margin-bottom: 8px; text-decoration: none; }
 .render-frame {
-  display: grid; place-items: center; min-height: 420px; border-radius: 12px;
-  background: #fff; border: 1px solid var(--line); overflow: hidden;
+  position: relative; display: grid; place-items: center; margin-bottom: 10px;
+  border-radius: 10px; background: #fff; border: 1px solid var(--line); overflow: hidden;
 }
-.render-img { width: 100%; height: auto; max-height: 72vh; object-fit: contain; display: block; }
-.progress { padding: 24px; text-align: center; }
+.render-frame.running, .render-frame.error { min-height: 260px; padding: 24px; text-align: center; }
+.render-img { width: 100%; height: auto; max-height: 64vh; object-fit: contain; display: block; }
+.render-frame.outdated .render-img { opacity: 0.35; filter: grayscale(0.6); }
+.outdated-badge {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg); font-size: 12px; padding: 3px 10px; border-radius: 999px;
+}
 .progress-title { font-weight: 600; margin: 12px 0 4px; }
 .spinner {
   display: inline-block; width: 28px; height: 28px; border-radius: 50%;
@@ -111,10 +99,38 @@ button { font: inherit; color: inherit; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
-.render-error { padding: 24px; text-align: center; }
-.render-error p { margin: 0 0 12px; }
-.result-pieces { list-style: none; margin: 12px 0 0; padding: 0; }
-.result-pieces li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.result-thumb { width: 36px; height: 44px; object-fit: contain; background: var(--surface); border-radius: 6px; flex: none; }
-.result-pieces .piece-name { flex: 1; min-width: 0; }
-.tag.owned { background: var(--surface); color: var(--muted); }
+.render-frame.error p { margin: 0 0 8px; }
+
+/* Drawers: Fitting Room · My Closet */
+.drawers { margin: 16px 16px 0; scroll-margin-top: 8px; }
+.tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.tab {
+  border: 0; background: none; cursor: pointer; padding: 8px 0; margin-bottom: -1px;
+  font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent;
+  display: flex; align-items: center; gap: 6px;
+}
+.tab[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-count { font-size: 11px; font-weight: 500; background: var(--surface); color: var(--muted); border-radius: 999px; padding: 1px 7px; }
+.choosing { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; color: var(--accent); font-weight: 600; }
+.drawers .chips { margin-bottom: 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.item-wrap { position: relative; }
+.item {
+  display: block; width: 100%; aspect-ratio: 3 / 4; padding: 4px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+}
+.item:hover { border-color: var(--muted); }
+.item[aria-pressed='true'] { border: 2px solid var(--accent); padding: 3px; }
+.item-img { width: 100%; height: 100%; object-fit: contain; }
+.item-more {
+  position: absolute; top: 4px; right: 4px; width: 26px; height: 22px; line-height: 1;
+  border: 0; border-radius: 6px; background: rgba(255, 255, 255, 0.9); cursor: pointer; color: var(--muted);
+}
+.item-more:hover, .item-more[aria-expanded='true'] { color: var(--ink); background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.item-menu {
+  position: absolute; top: 30px; right: 4px; z-index: 5; min-width: 150px; padding: 4px;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.item-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.item-menu button:hover { background: var(--surface); }
+.item-menu .danger { color: #a33a2b; }

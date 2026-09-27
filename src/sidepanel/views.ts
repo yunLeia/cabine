@@ -1,13 +1,17 @@
-import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Outfit } from '../shared/types';
-import { cropStyle } from '../shared/preview';
+import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Location, type Outfit } from '../shared/types';
 import { h } from './dom';
 import { imageUrl } from './image-urls';
 
+// The panel's hierarchy (D18): Your Look on top is the workspace (what I'm
+// building now, and its render); the drawers below are where pieces come from.
+//   Fitting Room = store pieces I'm considering, as their original photos
+//   My Closet    = what I own, optionally with a cleaned-up thumbnail
+
 export interface RenderState {
-  key: string; // which look this is (render.ts lookKey)
-  garments: Garment[]; // the pieces, in layering order, as they were when requested
+  key: string; // the look it was made for (render.ts lookKey)
+  count: number; // pieces in that look
   status: 'running' | 'done' | 'error';
-  cached?: boolean; // the server already had this look: it'll be back in a moment
+  cached?: boolean;
   imageUrl?: string;
   error?: string;
 }
@@ -17,32 +21,41 @@ export interface ViewState {
   byId: Map<string, Garment>;
   outfit: Outfit;
   draft: Draft | null;
+  lookKey: string | null; // the current look's key; null when nothing is selected
+  render: RenderState | null; // the latest render; dimmed when it's for an older look
+  drawer: Location;
   filter: Category | 'all';
   choosing: Category | null; // the slot the user is picking a garment for
-  view: 'build' | 'result';
-  result: RenderState | null;
+  menuFor: string | null; // garment whose item menu is open
 }
 
 export interface Actions {
   saveDraft(category: Category): void;
   discardDraft(): void;
   pick(g: Garment): void;
-  remove(category: Category): void;
-  choose(slot: Category): void; // show only that category in the closet, then pick
+  takeOff(category: Category): void;
+  choose(slot: Category): void;
   cancelChoose(): void;
   filter(filter: Category | 'all'): void;
+  openDrawer(drawer: Location): void;
   seeOutfit(): void;
-  editLook(): void;
+  toggleMenu(id: string | null): void;
+  addToCloset(g: Garment): void;
+  removeGarment(g: Garment): void;
 }
 
-const thumb = (imageId: string | undefined, cls: string, g?: Garment) => {
-  const src = imageUrl(imageId);
-  return src ? h('img', { class: cls, src, alt: '', style: cropStyle(g?.previewCrop) }) : h('div', { class: `${cls} thumb-empty` });
-};
-
 const lower = (c: Category) => CATEGORY_LABEL[c].toLowerCase();
+const name = (g: Garment) => g.title ?? CATEGORY_LABEL[g.category];
+const DRAWER_LABEL: Record<Location, string> = { fittingRoom: 'Fitting Room', closet: 'My Closet' };
 
-// ---- Draft: "What type of item is this?" --------------------------------------
+// My Closet shows the cleaned-up photo when there is one; the Fitting Room and
+// every render always use the original.
+const thumbSrc = (g: Garment) => imageUrl(g.location === 'closet' && g.cleanImageId ? g.cleanImageId : g.imageId);
+
+const img = (src: string | undefined, cls: string, alt = '') =>
+  src ? h('img', { class: cls, src, alt }) : h('div', { class: `${cls} thumb-empty` });
+
+// ---- Draft: "What type of item is this?" ----------------------------------------
 
 export function draftView(d: Draft, a: Actions): HTMLElement {
   const status =
@@ -50,11 +63,11 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
   return h(
     'section',
     { class: 'draft', 'aria-label': 'New item' },
-    thumb(d.imageId, 'draft-img'),
+    img(imageUrl(d.imageId), 'draft-img'),
     h(
       'div',
       { class: 'draft-body' },
-      h('span', { class: 'eyebrow' }, d.sourceType === 'shopping' ? 'From this store' : 'Your upload'),
+      h('span', { class: 'eyebrow' }, d.sourceType === 'shopping' ? 'To your Fitting Room' : 'To My Closet'),
       d.title && h('strong', { class: 'draft-title', title: d.title }, d.title),
       status ? h('p', { class: 'muted' }, status) : h('p', { class: 'draft-q' }, 'What type of item is this?'),
       d.status === 'ready' &&
@@ -64,12 +77,42 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
   );
 }
 
-// ---- Your look ------------------------------------------------------------------
-// The piece being considered (a store capture) is "Trying"; everything else is
-// "With my closet". That split is Cabine's question: does this new piece work
-// with what I already own?
+// ---- Your Look: the workspace ------------------------------------------------------
 
 const LOOK_ORDER: Category[] = ['outerwear', 'dress', 'top', 'bottom', 'shoes']; // head to toe
+
+function renderArea(s: ViewState, a: Actions): HTMLElement | null {
+  const r = s.render;
+  if (!r) return null;
+  const current = r.key === s.lookKey;
+  if (r.status === 'running' && current) {
+    return h(
+      'div',
+      { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
+      h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      h('p', { class: 'progress-title' }, 'Styling your look…'),
+      h('p', { class: 'muted small' }, r.cached ? 'Almost there' : `${r.count} piece${r.count > 1 ? 's' : ''} · about 15 seconds`),
+    );
+  }
+  if (r.status === 'error' && current) {
+    return h(
+      'div',
+      { class: 'render-frame error', role: 'alert' },
+      h('p', {}, r.error ?? 'Something went wrong.'),
+      h('button', { type: 'button', class: 'link', onclick: a.seeOutfit }, 'Try again'),
+    );
+  }
+  if (r.status === 'done' && r.imageUrl) {
+    // A render for an older look stays visible, dimmed, so you keep your bearings.
+    return h(
+      'div',
+      { class: current ? 'render-frame done' : 'render-frame done outdated' },
+      h('img', { class: 'render-img', src: r.imageUrl, alt: 'Your outfit on the mannequin' }),
+      !current && h('span', { class: 'outdated-badge' }, 'Look changed'),
+    );
+  }
+  return null;
+}
 
 function pieceView(g: Garment, a: Actions): HTMLElement {
   return h(
@@ -78,10 +121,10 @@ function pieceView(g: Garment, a: Actions): HTMLElement {
     h(
       'button',
       { type: 'button', class: 'piece-main', title: `Change ${lower(g.category)}`, onclick: () => a.choose(g.category) },
-      thumb(g.imageId, 'piece-img', g),
-      h('span', { class: 'piece-text' }, h('span', { class: 'piece-name' }, g.title ?? CATEGORY_LABEL[g.category]), h('span', { class: 'piece-cat' }, CATEGORY_LABEL[g.category])),
+      img(thumbSrc(g), 'piece-img'),
+      h('span', { class: 'piece-text' }, h('span', { class: 'piece-name' }, name(g)), h('span', { class: 'piece-cat' }, CATEGORY_LABEL[g.category])),
     ),
-    h('button', { type: 'button', class: 'icon', 'aria-label': `Remove ${g.title ?? lower(g.category)}`, onclick: () => a.remove(g.category) }, '×'),
+    h('button', { type: 'button', class: 'icon', 'aria-label': `Take off ${name(g)}`, onclick: () => a.takeOff(g.category) }, '×'),
   );
 }
 
@@ -105,8 +148,9 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     const g = s.outfit[c] ? s.byId.get(s.outfit[c]!) : undefined;
     return g ? [g] : [];
   });
-  const trying = worn.filter((g) => g.sourceType === 'shopping');
-  const owned = worn.filter((g) => g.sourceType === 'closet');
+  const trying = worn.filter((g) => g.location === 'fittingRoom');
+  const owned = worn.filter((g) => g.location === 'closet');
+  const upToDate = s.render?.key === s.lookKey && (s.render.status === 'running' || s.render.status === 'done');
 
   const group = (label: string, items: Garment[], cls: string) =>
     items.length ? h('div', { class: `group ${cls}` }, h('h3', {}, label), h('ul', { class: 'pieces' }, ...items.map((g) => pieceView(g, a)))) : null;
@@ -115,7 +159,8 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     'section',
     { class: 'look', 'aria-label': 'Your look' },
     h('h2', {}, 'Your look'),
-    worn.length === 0 && h('p', { class: 'muted' }, 'Pick pieces to see them together.'),
+    worn.length > 0 && renderArea(s, a),
+    worn.length === 0 && h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.'),
     group('Trying', trying, 'trying'),
     group(trying.length ? 'With my closet' : 'From my closet', owned, 'owned'),
     h(
@@ -125,30 +170,68 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
         h('button', { type: 'button', class: label.startsWith('+') ? 'adder' : 'link small', 'aria-pressed': s.choosing === slot, onclick: () => a.choose(slot) }, label),
       ),
     ),
-    h('button', { type: 'button', class: 'primary', disabled: worn.length === 0, onclick: a.seeOutfit }, 'See the outfit'),
-    worn.length > 0 && h('p', { class: 'muted small center' }, `${worn.length} piece${worn.length > 1 ? 's' : ''} selected`),
+    worn.length > 0 && !upToDate && h('button', { type: 'button', class: 'primary', onclick: a.seeOutfit }, 'See the outfit'),
   );
 }
 
-// ---- Closet ----------------------------------------------------------------------
+// ---- Drawers: Fitting Room · My Closet ----------------------------------------------
 
-export function libraryView(s: ViewState, a: Actions): HTMLElement {
-  const count = (c: Category) => s.garments.filter((g) => g.category === c).length;
-  const shown = s.garments.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
+function itemMenu(g: Garment, a: Actions): HTMLElement {
+  return h(
+    'div',
+    { class: 'item-menu', role: 'menu' },
+    g.location === 'fittingRoom' &&
+      h('button', { type: 'button', role: 'menuitem', onclick: () => a.addToCloset(g) }, 'Add to My Closet'),
+    h('button', { type: 'button', role: 'menuitem', class: 'danger', onclick: () => a.removeGarment(g) }, 'Remove'),
+  );
+}
 
-  const heading = s.choosing
-    ? h('div', { class: 'choosing' }, h('h2', {}, `Choose ${/^[aeiou]/i.test(s.choosing) ? 'an' : 'a'} ${lower(s.choosing)}`), h('button', { type: 'button', class: 'link small', onclick: a.cancelChoose }, 'Cancel'))
-    : h('h2', {}, 'Closet');
+export function drawersView(s: ViewState, a: Actions): HTMLElement {
+  const inDrawer = s.garments.filter((g) => g.location === s.drawer);
+  const count = (c: Category) => inDrawer.filter((g) => g.category === c).length;
+  const shown = inDrawer.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
 
-  // While choosing a slot the closet is already narrowed to it, so filters are hidden.
+  const tabs = h(
+    'div',
+    { class: 'tabs', role: 'tablist' },
+    ...(['fittingRoom', 'closet'] as Location[]).map((d) =>
+      h(
+        'button',
+        { type: 'button', role: 'tab', class: 'tab', 'aria-selected': s.drawer === d, onclick: () => a.openDrawer(d) },
+        DRAWER_LABEL[d],
+        h('span', { class: 'tab-count' }, String(s.garments.filter((g) => g.location === d).length)),
+      ),
+    ),
+  );
+
+  const choosing =
+    s.choosing &&
+    h(
+      'div',
+      { class: 'choosing' },
+      h('span', {}, `Choose ${/^[aeiou]/i.test(s.choosing) ? 'an' : 'a'} ${lower(s.choosing)}`),
+      h('button', { type: 'button', class: 'link small', onclick: a.cancelChoose }, 'Cancel'),
+    );
+
   const filters =
     !s.choosing &&
+    inDrawer.length > 0 &&
     h(
       'div',
       { class: 'chips' },
-      h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === 'all', onclick: () => a.filter('all') }, `All ${s.garments.length}`),
-      ...CATEGORIES.map((c) => h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === c, onclick: () => a.filter(c) }, `${CATEGORY_LABEL[c]} ${count(c)}`)),
+      h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === 'all', onclick: () => a.filter('all') }, `All ${inDrawer.length}`),
+      ...CATEGORIES.filter((c) => count(c) > 0).map((c) =>
+        h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === c, onclick: () => a.filter(c) }, `${CATEGORY_LABEL[c]} ${count(c)}`),
+      ),
     );
+
+  const shownCategory = s.choosing ?? (s.filter === 'all' ? null : s.filter);
+  const empty = () =>
+    inDrawer.length === 0 && !shownCategory
+      ? s.drawer === 'fittingRoom'
+        ? 'Nothing here yet. On any store, right-click a product image and choose "Try in Cabine".'
+        : 'Your closet is empty. Upload photos of clothes you own.'
+      : `No ${shownCategory ? lower(shownCategory) : 'items'} in your ${DRAWER_LABEL[s.drawer]}.`;
 
   const grid = shown.length
     ? h(
@@ -156,70 +239,23 @@ export function libraryView(s: ViewState, a: Actions): HTMLElement {
         { class: 'grid' },
         ...shown.map((g) =>
           h(
-            'button',
-            { type: 'button', class: 'item', title: g.title, 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
-            thumb(g.imageId, 'item-img', g),
-            g.sourceType === 'shopping' && h('span', { class: 'tag' }, 'Trying'),
+            'div',
+            { class: 'item-wrap' },
+            h(
+              'button',
+              { type: 'button', class: 'item', title: name(g), 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
+              img(thumbSrc(g), 'item-img', name(g)),
+            ),
+            h(
+              'button',
+              { type: 'button', class: 'item-more', 'aria-label': `More for ${name(g)}`, 'aria-expanded': s.menuFor === g.id, onclick: () => a.toggleMenu(s.menuFor === g.id ? null : g.id) },
+              '⋯',
+            ),
+            s.menuFor === g.id && itemMenu(g, a),
           ),
         ),
       )
-    : h(
-        'p',
-        { class: 'muted' },
-        s.garments.length
-          ? `No ${lower((s.choosing ?? s.filter) as Category)} in your closet yet. Upload one, or capture it from a store.`
-          : 'Your closet is empty. Upload a photo, or right-click a product image on any store and choose "Try in Cabine".',
-      );
+    : h('p', { class: 'muted' }, empty());
 
-  return h('section', { class: 'library', id: 'library', 'aria-label': 'Your closet' }, heading, filters, grid);
-}
-
-// ---- Result: the render takes over the panel ------------------------------------
-
-const pieceName = (g: Garment) => g.title ?? CATEGORY_LABEL[g.category];
-
-// One render per look, so there's nothing to tick off: just say what's happening
-// and roughly how long it takes. The pieces are listed below the frame.
-function progressView(r: RenderState): HTMLElement {
-  return h(
-    'div',
-    { class: 'progress', role: 'status', 'aria-live': 'polite' },
-    h('span', { class: 'spinner', 'aria-hidden': 'true' }),
-    h('p', { class: 'progress-title' }, 'Styling your look…'),
-    h('p', { class: 'muted small' }, r.cached ? 'Almost there' : `${r.garments.length} piece${r.garments.length > 1 ? 's' : ''} · about 15 seconds`),
-  );
-}
-
-export function resultView(r: RenderState, a: Actions): HTMLElement {
-  const frame =
-    r.status === 'done' && r.imageUrl
-      ? h('img', { class: 'render-img', src: r.imageUrl, alt: `Outfit: ${r.garments.map(pieceName).join(', ')}` })
-      : r.status === 'error'
-        ? h(
-            'div',
-            { class: 'render-error', role: 'alert' },
-            h('p', {}, r.error ?? 'Something went wrong.'),
-            h('button', { type: 'button', class: 'primary', onclick: a.seeOutfit }, 'Try again'),
-          )
-        : progressView(r);
-
-  return h(
-    'section',
-    { class: 'result', 'aria-label': 'Your outfit' },
-    h('button', { type: 'button', class: 'link back', onclick: a.editLook }, '← Edit look'),
-    h('div', { class: `render-frame ${r.status}` }, frame),
-    h(
-      'ul',
-      { class: 'result-pieces' },
-      ...r.garments.map((g) =>
-        h(
-          'li',
-          {},
-          thumb(g.imageId, 'result-thumb', g),
-          h('span', { class: 'piece-name' }, pieceName(g)),
-          h('span', { class: g.sourceType === 'shopping' ? 'tag' : 'tag owned' }, g.sourceType === 'shopping' ? 'Trying' : 'My closet'),
-        ),
-      ),
-    ),
-  );
+  return h('section', { class: 'drawers', id: 'drawers', 'aria-label': 'Your pieces' }, tabs, choosing, filters, grid);
 }

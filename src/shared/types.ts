@@ -10,18 +10,23 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   shoes: 'Shoes',
 };
 
-// A garment in the library. Captured and uploaded garments are the same shape:
-// the original image plus a category the user picked (docs/decisions.md D13).
+// Where a garment lives (D18): the Fitting Room holds store pieces you're
+// considering, as their original photos; My Closet holds what you own.
+export type Location = 'fittingRoom' | 'closet';
+
+// A garment. Captured and uploaded garments are the same shape: the original
+// image plus a category the user picked (docs/decisions.md D13).
 export interface Garment {
   id: string;
-  sourceType: 'shopping' | 'closet';
+  location: Location;
+  sourceType: 'shopping' | 'closet'; // where it came from (a store capture, or your upload)
   category: Category;
   title?: string;
   sourcePageUrl?: string; // the product page, for shopping captures
   sourceImageUrl?: string; // the retailer's image URL at capture time (reference only; it may expire)
   imageId: string; // IndexedDB key of the original image
   imageVersion: number; // bumped if the image is replaced; part of the render cache key
-  previewCrop?: import('./preview').PreviewCrop; // thumbnail band for full-body store photos (D17)
+  cleanImageId?: string; // extracted product shot, for My Closet thumbnails only (renders use the original)
   createdAt: number;
 }
 
