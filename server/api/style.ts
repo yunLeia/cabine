@@ -133,7 +133,7 @@ class LimitError extends Error {}
 
 async function reserveCredits(n: number, deps: Deps): Promise<void> {
   const path = `usage/${(deps.today ?? (() => new Date().toISOString().slice(0, 10)))()}.json`;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     const existing = await deps.store.read(path);
     const used = existing ? (JSON.parse(Buffer.from(existing.bytes).toString()) as { credits: number }).credits : 0;
     if (used + n > deps.dailyCreditLimit) {
@@ -145,6 +145,7 @@ async function reserveCredits(n: number, deps: Deps): Promise<void> {
       return;
     } catch (err) {
       if (!(err instanceof ConflictError)) throw err; // someone else updated it: re-read and retry
+      await new Promise((r) => setTimeout(r, 50 + Math.random() * 150 * (attempt + 1))); // spread out retries
     }
   }
   throw new Error('Could not update the usage counter');
@@ -305,7 +306,10 @@ async function fashnRun(apiKey: string, model: string, inputs: Record<string, un
 
 const blobStore: Store = {
   async read(path) {
-    const r = await get(path, { access: 'private' });
+    // Bypass the CDN cache: a cached copy of the usage counter has a stale etag,
+    // so every ifMatch update would fail (seen in production as "Could not update
+    // the usage counter"). Looks are read fresh too; they're small and read rarely.
+    const r = await get(path, { access: 'private', useCache: false });
     if (!r || r.statusCode !== 200) return null;
     return { bytes: new Uint8Array(await new Response(r.stream).arrayBuffer()), etag: r.blob.etag };
   },
@@ -319,8 +323,14 @@ const blobStore: Store = {
         ...(ifMatch ? { ifMatch } : {}),
       });
     } catch (err) {
-      // Precondition failures (etag changed, or the file was created meanwhile) mean "retry".
-      if (err instanceof BlobPreconditionFailedError || (ifMatch === null && /already exists/i.test(String(err)))) {
+      // All of these mean "someone else wrote it first, re-read and retry": the etag
+      // changed, the file was created meanwhile, or Blob rejected a write racing
+      // another one ("conflicting operation", seen when two renders overlap).
+      if (
+        err instanceof BlobPreconditionFailedError ||
+        /conflicting operation/i.test(String(err)) ||
+        (ifMatch === null && /already exists/i.test(String(err)))
+      ) {
         throw new ConflictError(String(err));
       }
       throw err;
