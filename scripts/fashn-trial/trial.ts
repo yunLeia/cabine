@@ -31,75 +31,59 @@ interface Garment {
   prompt?: string; // styling instruction, Try-On Max only
 }
 
+// Every Try-On Max step repeats this, so the base stays a mannequin (the docs
+// only mention people; the prompt is how we ask for a mannequin).
+const KEEP_MANNEQUIN =
+  'Keep the mannequin exactly as it is: a white matte faceless store mannequin with no skin, no face and no hair. Do not turn it into a person.';
+
 const GARMENTS: Record<string, Garment> = {
-  'sweater-puff-grey': { slot: 'top', src: 'sweater-puff-grey.jpg', prompt: 'tuck in the sweater' },
-  'tee-cream-cropped': { slot: 'top', src: 'tee-cream-cropped.jpg' },
-  'top-cowl-grey': { slot: 'top', src: 'top-cowl-grey.jpg' },
-  'jeans-dark-highrise': { slot: 'bottom', src: 'jeans-dark-highrise.jpg' },
-  'jeans-skinny-ripped': { slot: 'bottom', src: 'jeans-skinny-ripped.jpg' },
-  'skirt-black-mini': { slot: 'bottom', src: 'skirt-black-mini.jpg' },
-  'jacket-boucle-black': { slot: 'outerwear', src: 'jacket-boucle-black.jpg', prompt: 'wear the jacket open' },
-  // On-model store photos: add entries with the image URL, e.g.
-  // 'store-blazer': { slot: 'outerwear', src: 'https://.../blazer.jpg' },
+  'jeans-dark-highrise': { slot: 'bottom', src: 'jeans-dark-highrise.jpg', prompt: 'Put the full-length dark jeans on the mannequin.' },
+  // On-model store photos: the prompt says which garment to take, since other clothes are visible too.
+  'cami-navy-lace': { slot: 'top', src: 'cami-navy-lace.webp', prompt: 'Take only the navy lace camisole from the reference, worn over the jeans, untucked.' },
+  'trench-brown': { slot: 'outerwear', src: 'trench-brown.webp', prompt: 'Take only the brown trench coat from the reference, worn open over the camisole.' },
 };
 
 const OUTFITS: { name: string; garments: string[] }[] = [
-  { name: 'Sweater + high-rise jeans', garments: ['jeans-dark-highrise', 'sweater-puff-grey'] },
-  { name: 'Cropped tee + mini skirt + bouclé jacket', garments: ['skirt-black-mini', 'tee-cream-cropped', 'jacket-boucle-black'] },
-  { name: 'Cowl top + ripped jeans + bouclé jacket', garments: ['jeans-skinny-ripped', 'top-cowl-grey', 'jacket-boucle-black'] },
+  { name: 'Jeans + navy lace cami + brown trench', garments: ['jeans-dark-highrise', 'cami-navy-lace', 'trench-brown'] },
 ];
 
-// The fixed "mannequin": one generated person every outfit is tried on.
-// Plain fitted base clothes so each try-on has something simple to replace.
-const BASE = {
+// Bare full-body mannequins (not dress forms: bottoms need legs). Bare so only
+// the chosen pieces appear, like a shop window.
+const mannequinBase = (head: string) => ({
   model: 'model-create',
   credits: 1,
   inputs: {
     prompt:
-      'Full-body studio fashion photo of a woman standing straight, facing the camera, arms relaxed slightly away from the body, ' +
-      'wearing a plain fitted white tank top and plain fitted light grey leggings, white sneakers, neutral expression, ' +
-      'plain light grey seamless background, soft even lighting, entire body in frame from head to feet',
+      `Full-body studio product photo of a white matte fiberglass store display mannequin, not a person, ${head}, ` +
+      'standing straight facing the camera, arms relaxed slightly away from the body, legs straight, ' +
+      'no clothing, no shoes, plain light grey seamless background, soft even lighting, the entire mannequin in frame from top to feet',
     aspect_ratio: '2:3',
     resolution: '1k',
     generation_mode: 'fast',
     seed: 42,
   },
-};
+});
 
 interface Variant {
   id: string;
   label: string;
+  base: ReturnType<typeof mannequinBase>;
   model: string;
   credits: number; // per step
   inputs: (g: Garment, modelImage: string, garmentImage: string) => Record<string, unknown>;
 }
 
+const tryOnMax = (g: Garment, modelImage: string, garmentImage: string) => ({
+  model_image: modelImage,
+  product_image: garmentImage,
+  generation_mode: 'fast',
+  resolution: '1k',
+  prompt: [g.prompt, KEEP_MANNEQUIN].filter(Boolean).join(' '),
+});
+
 const VARIANTS: Variant[] = [
-  {
-    id: 'v16',
-    label: 'Try-On v1.6 (balanced)',
-    model: 'tryon-v1.6',
-    credits: 1,
-    inputs: (g, modelImage, garmentImage) => ({
-      model_image: modelImage,
-      garment_image: garmentImage,
-      category: g.slot === 'bottom' ? 'bottoms' : 'tops', // v1.6 has no outerwear category
-      mode: 'balanced',
-    }),
-  },
-  {
-    id: 'max',
-    label: 'Try-On Max (fast, 1k)',
-    model: 'tryon-max',
-    credits: 1,
-    inputs: (g, modelImage, garmentImage) => ({
-      model_image: modelImage,
-      product_image: garmentImage,
-      generation_mode: 'fast',
-      resolution: '1k',
-      ...(g.prompt ? { prompt: g.prompt } : {}),
-    }),
-  },
+  { id: 'faceless', label: 'Faceless mannequin · Try-On Max', base: mannequinBase('smooth featureless egg-shaped head with no face and no hair'), model: 'tryon-max', credits: 1, inputs: tryOnMax },
+  { id: 'headless', label: 'Headless mannequin · Try-On Max', base: mannequinBase('headless, the body ends at the neck with a flat cap'), model: 'tryon-max', credits: 1, inputs: tryOnMax },
 ];
 
 // ---- CLI and environment -------------------------------------------------------
@@ -192,12 +176,15 @@ function liveApi(key: string): Api {
   };
 }
 
-// Echoes the model image back (base = the extension's mannequin drawing), so the
+// Echoes the model image back (base = a placeholder drawing), so the
 // orchestration, caching and report can be checked without spending credits.
 const mockApi: Api = {
   async run(model, inputs) {
     await sleep(150);
-    if (model === 'model-create') return dataUri(join(ROOT, 'public/mannequin.svg'));
+    if (model === 'model-create') {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><rect width="200" height="300" fill="#eee"/><ellipse cx="100" cy="40" rx="18" ry="24" fill="#ccc"/><rect x="70" y="70" width="60" height="220" rx="20" fill="#ccc"/></svg>';
+      return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+    }
     return String(inputs.model_image);
   },
 };
@@ -217,6 +204,7 @@ interface Step {
   credits: number;
   garment?: string;
   prev?: Step;
+  baseInputs?: Record<string, unknown>; // for base steps
   buildInputs?: (modelImage: string) => Record<string, unknown>;
 }
 
@@ -233,17 +221,22 @@ const cacheMeta = (key: string) => join(CACHE, `${key}.json`);
 const cached = (key: string): Result | undefined =>
   existsSync(cacheMeta(key)) ? (JSON.parse(readFileSync(cacheMeta(key), 'utf8')) as Result) : undefined;
 
-// Separate caches per mode: mock results must never stand in for real ones.
-const baseStep: Step = BASE_FILE
-  ? { key: hash(`file:${resolve(BASE_FILE)}`), label: 'Base (your file)', model: 'file', credits: 0 }
-  : { key: hash(`${MODE === 'mock' ? 'mock:' : ''}${JSON.stringify(BASE)}`), label: 'Base person', model: BASE.model, credits: BASE.credits };
+// One base per variant. Separate caches per mode: mock results must never stand in for real ones.
+const baseSteps = new Map<string, Step>(
+  variants.map((v): [string, Step] => [
+    v.id,
+    BASE_FILE
+      ? { key: hash(`file:${resolve(BASE_FILE)}`), label: 'Base (your file)', model: 'file', credits: 0 }
+      : { key: hash(`${MODE === 'mock' ? 'mock:' : ''}${JSON.stringify(v.base)}`), label: `Base: ${v.id}`, model: v.base.model, credits: v.base.credits, baseInputs: v.base.inputs },
+  ]),
+);
 
 const chains = OUTFITS.flatMap((outfit) =>
   variants.map((variant) => {
     const ordered = [...outfit.garments].sort(
       (a, b) => SLOT_ORDER.indexOf(GARMENTS[a].slot) - SLOT_ORDER.indexOf(GARMENTS[b].slot),
     );
-    let prev = baseStep;
+    let prev = baseSteps.get(variant.id)!;
     const steps = ordered.map((id) => {
       const g = GARMENTS[id];
       const src = garmentPath(g);
@@ -275,11 +268,11 @@ async function main() {
   if (BASE_FILE && !existsSync(BASE_FILE)) throw new Error(`--base file not found: ${BASE_FILE}`);
 
   const unique = new Map<string, Step>();
-  for (const s of [baseStep, ...chains.flatMap((c) => c.steps)]) unique.set(s.key, s);
+  for (const s of [...baseSteps.values(), ...chains.flatMap((c) => c.steps)]) unique.set(s.key, s);
   const todo = [...unique.values()].filter((s) => !cached(s.key) && s.model !== 'file');
   const estimate = todo.reduce((n, s) => n + s.credits, 0);
 
-  console.log(`Mode: ${MODE}. ${OUTFITS.length} outfits × ${variants.length} models = ${chains.length} chains, ${unique.size} steps.`);
+  console.log(`Mode: ${MODE}. ${OUTFITS.length} outfits × ${variants.length} variants = ${chains.length} chains, ${unique.size} steps.`);
   for (const c of chains) console.log(`  ${c.variant.id.padEnd(4)} ${c.outfit.name}: ${c.steps.map((s) => s.garment).join(' → ')}`);
   console.log(`To run: ${todo.length} steps (${unique.size - todo.length} cached). Estimate: ${estimate} credits ≈ $${(estimate * 0.075).toFixed(2)}.`);
 
@@ -317,7 +310,7 @@ async function main() {
     const prev = step.prev ? await execute(step.prev) : undefined;
     // FASHN's CDN URLs expire after ~3 days; fall back to the local copy after that.
     const modelImage = prev && Date.now() - prev.createdAt < 2.5 * 86_400_000 ? prev.remote : prev ? dataUri(prev.file) : '';
-    const inputs = step.buildInputs ? step.buildInputs(modelImage) : BASE.inputs;
+    const inputs = step.buildInputs ? step.buildInputs(modelImage) : step.baseInputs!;
     const t = Date.now();
     const remote = await api.run(step.model, inputs);
     const seconds = (Date.now() - t) / 1000;
@@ -363,8 +356,6 @@ function writeReport(errors: Map<string, string>) {
     const e = errors.get(s.key);
     return `<figure class="missing"><div>${e ? `✗ ${escape(e)}` : 'not run'}</div><figcaption>${s.label}</figcaption></figure>`;
   };
-  const base = cached(baseStep.key);
-
   const sections = OUTFITS.map((outfit) => {
     const garments = outfit.garments
       .map((id) => {
@@ -379,7 +370,7 @@ function writeReport(errors: Map<string, string>) {
         const secs = total.reduce((n, r) => n + r.seconds, 0);
         const cr = total.reduce((n, r) => n + r.credits, 0);
         return `<div class="row"><h3>${c.variant.label}<small>${secs.toFixed(0)}s · ${cr} cr ≈ $${(cr * 0.075).toFixed(2)}</small></h3>
-          <div class="steps">${c.steps.map(cell).join('')}</div></div>`;
+          <div class="steps">${[baseSteps.get(c.variant.id)!, ...c.steps].map(cell).join('')}</div></div>`;
       })
       .join('');
     return `<section><h2>${outfit.name}</h2><div class="steps garments">${garments}</div>${rows}</section>`;
@@ -399,8 +390,7 @@ function writeReport(errors: Map<string, string>) {
   .meta { color: #6f6b64; }
 </style>
 <h1>FASHN trial <span class="meta">(${MODE})</span></h1>
-<p class="meta">Judge each final image: natural? faithful to the garments? consistent person across outfits? time and cost acceptable?</p>
-${base ? `<figure>${img(rel(base.file))}<figcaption>${baseStep.label}</figcaption></figure>` : ''}
+<p class="meta">Judge each final image: natural? faithful to the garments? stays a mannequin (no skin, face or hair)? layering right? time and cost acceptable?</p>
 ${sections}`,
   );
 }
