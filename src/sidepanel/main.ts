@@ -7,14 +7,14 @@ import { draftView, libraryView, lookView, type Actions, type ViewState } from '
 
 // Stored state (garments, outfit, draft) is a mirror of chrome.storage.local and
 // only changes through storage writes + onChanged. UI-only state (filter,
-// notice) lives here.
+// choosing) lives here.
 const state: ViewState = {
   garments: [],
   byId: new Map(),
   outfit: {},
   draft: null,
   filter: 'all',
-  notice: null,
+  choosing: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -46,24 +46,43 @@ const actions: Actions = {
     if (d?.imageId) await deleteImage(d.imageId);
   },
 
-  toggle(g: Garment) {
-    void setOutfit(toggleInOutfit(state.outfit, g));
+  pick(g: Garment) {
+    if (state.choosing) {
+      // Picking for a slot: wear it (even if it already was) and go back to the look.
+      if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
+      state.choosing = null;
+      state.filter = 'all';
+      render();
+      $('look').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    void setOutfit(toggleInOutfit(state.outfit, g)); // browsing: click toggles on/off
   },
 
-  clearSlot(category: Category) {
+  remove(category: Category) {
     void setOutfit(removeFromOutfit(state.outfit, category));
   },
 
-  browse(filter) {
-    state.filter = filter;
+  choose(slot: Category) {
+    state.choosing = slot;
+    state.filter = slot;
     render();
     $('library').scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
-  styleTogether() {
-    // R4-R5: send the chain to the Vercel proxy and show step-by-step progress.
-    state.notice = 'Styling connects to FASHN in the next step (R4–R5).';
+  cancelChoose() {
+    state.choosing = null;
+    state.filter = 'all';
     render();
+  },
+
+  filter(filter) {
+    state.filter = filter;
+    render();
+  },
+
+  seeOutfit() {
+    // R5: render through the proxy and switch to the result view.
   },
 };
 
@@ -92,7 +111,6 @@ async function refresh(): Promise<void> {
   state.byId = new Map(stored.garments.map((g) => [g.id, g]));
   state.outfit = pruneOutfit(stored.outfit, state.byId);
   state.draft = stored.draft;
-  state.notice = null;
   await syncImageUrls([...stored.garments.map((g) => g.imageId), ...(stored.draft?.imageId ? [stored.draft.imageId] : [])]);
   render();
 }
