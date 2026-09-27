@@ -213,3 +213,18 @@ docs/
   - A new dependency (`sharp`, native but standard on Vercel).
 - **Revisit when:** looks with 4–5 pieces lose detail (try 2K resolution, or send fewer pieces per image), or another model beats FASHN on faithfulness or cost; add it as a provider and compare.
 - **Supersedes:** the chain parts of D13 and D14, and D15's Model Create base (the prompts carry over).
+
+## D17. Thumbnails of full-body store photos show only the garment's band
+
+- **Context:** a top captured from a full-body model shot showed the whole person (and their other clothes) in the closet and the look, so you couldn't tell which piece was saved.
+- **Options:** a crop box preset by category that the user adjusts · **an automatic crop by category, no adjusting** · AI garment detection · a generated packshot per item
+- **Decision:**
+  - When a **store** photo is saved and it's **tall** (height/width ≥ 1.4, typical of full-body shots), store a band by category: top 10–58% of the height, outerwear 8–78%, bottom 40–100%, shoes 78–100%. A dress shows the whole figure.
+  - Thumbnails show that band with CSS `object-view-box`.
+  - **Preview only:** the original image is untouched and is still what the renderer receives. FASHN picks the garment out of a model shot using the prompt and title, and a wrong band would clip the garment in the render.
+- **Why:** no extra step and no cost. Product-only shots and waist-up model shots aren't tall, so they're left alone.
+- **Tradeoffs:**
+  - A fixed band is a guess: unusual framing (a seated pose, a cropped-at-the-knee shot) can show the wrong area.
+  - The band can't be adjusted.
+  - Items captured before this change have no band.
+- **Revisit when:** M1.6 shows bands landing wrong often. Then add an adjustable crop box (the preset becomes its starting position) or AI detection to place it.

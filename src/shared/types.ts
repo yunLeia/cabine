@@ -21,6 +21,7 @@ export interface Garment {
   sourceImageUrl?: string; // the retailer's image URL at capture time (reference only; it may expire)
   imageId: string; // IndexedDB key of the original image
   imageVersion: number; // bumped if the image is replaced; part of the render cache key
+  previewCrop?: import('./preview').PreviewCrop; // thumbnail band for full-body store photos (D17)
   createdAt: number;
 }
 

@@ -1,4 +1,5 @@
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Outfit } from '../shared/types';
+import { cropStyle } from '../shared/preview';
 import { h } from './dom';
 import { imageUrl } from './image-urls';
 
@@ -34,9 +35,9 @@ export interface Actions {
   editLook(): void;
 }
 
-const thumb = (imageId: string | undefined, cls: string) => {
+const thumb = (imageId: string | undefined, cls: string, g?: Garment) => {
   const src = imageUrl(imageId);
-  return src ? h('img', { class: cls, src, alt: '' }) : h('div', { class: `${cls} thumb-empty` });
+  return src ? h('img', { class: cls, src, alt: '', style: cropStyle(g?.previewCrop) }) : h('div', { class: `${cls} thumb-empty` });
 };
 
 const lower = (c: Category) => CATEGORY_LABEL[c].toLowerCase();
@@ -77,7 +78,7 @@ function pieceView(g: Garment, a: Actions): HTMLElement {
     h(
       'button',
       { type: 'button', class: 'piece-main', title: `Change ${lower(g.category)}`, onclick: () => a.choose(g.category) },
-      thumb(g.imageId, 'piece-img'),
+      thumb(g.imageId, 'piece-img', g),
       h('span', { class: 'piece-text' }, h('span', { class: 'piece-name' }, g.title ?? CATEGORY_LABEL[g.category]), h('span', { class: 'piece-cat' }, CATEGORY_LABEL[g.category])),
     ),
     h('button', { type: 'button', class: 'icon', 'aria-label': `Remove ${g.title ?? lower(g.category)}`, onclick: () => a.remove(g.category) }, '×'),
@@ -157,7 +158,7 @@ export function libraryView(s: ViewState, a: Actions): HTMLElement {
           h(
             'button',
             { type: 'button', class: 'item', title: g.title, 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
-            thumb(g.imageId, 'item-img'),
+            thumb(g.imageId, 'item-img', g),
             g.sourceType === 'shopping' && h('span', { class: 'tag' }, 'Trying'),
           ),
         ),
@@ -214,7 +215,7 @@ export function resultView(r: RenderState, a: Actions): HTMLElement {
         h(
           'li',
           {},
-          thumb(g.imageId, 'result-thumb'),
+          thumb(g.imageId, 'result-thumb', g),
           h('span', { class: 'piece-name' }, pieceName(g)),
           h('span', { class: g.sourceType === 'shopping' ? 'tag' : 'tag owned' }, g.sourceType === 'shopping' ? 'Trying' : 'My closet'),
         ),

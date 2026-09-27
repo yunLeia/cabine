@@ -1,6 +1,7 @@
-import { deleteImage, putImage } from '../shared/images';
+import { deleteImage, getImage, putImage } from '../shared/images';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, setDraft, setOutfit } from '../shared/store';
+import { previewCrop } from '../shared/preview';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { RenderError, getSavedRender, lookKey, styleOutfit, type RenderEvent } from './render';
@@ -35,6 +36,7 @@ const actions: Actions = {
       sourceImageUrl: d.sourceImageUrl,
       imageId: d.imageId,
       imageVersion: 1,
+      previewCrop: d.sourceType === 'shopping' ? await cropFor(d.imageId, category) : undefined,
       createdAt: Date.now(),
     };
     await addGarments([garment]);
@@ -131,6 +133,16 @@ function showResult(r: RenderState): void {
 
 function applyEvent(r: RenderState, e: RenderEvent): void {
   if (e.type === 'plan') r.cached = e.cached;
+}
+
+// Store photos may show a whole person; your own uploads are usually just the garment.
+async function cropFor(imageId: string, category: Category) {
+  const blob = await getImage(imageId);
+  if (!blob) return undefined;
+  const bitmap = await createImageBitmap(blob);
+  const crop = previewCrop(category, bitmap.width, bitmap.height);
+  bitmap.close();
+  return crop;
 }
 
 async function upload(file: File): Promise<void> {
