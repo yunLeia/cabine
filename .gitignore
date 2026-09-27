@@ -6,3 +6,5 @@ public/closet/*
 .env.local
 scripts/fashn-trial/out/
 scripts/fashn-trial/inputs/
+.vercel
+.env*
