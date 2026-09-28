@@ -29,7 +29,9 @@ export async function flushEvents(): Promise<void> {
   }
 }
 
+let flushTimer: ReturnType<typeof setInterval> | undefined;
 export function startFlushing(): void {
+  if (flushTimer) return; // one sender per panel, however often this is called
   void flushEvents();
-  setInterval(() => void flushEvents(), 15_000);
+  flushTimer = setInterval(() => void flushEvents(), 15_000);
 }

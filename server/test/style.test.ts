@@ -99,7 +99,10 @@ function setup(limit = 100) {
   const recorded: EventRow[] = [];
   const deps: Deps = {
     store,
-    events: { record: async (rows) => void recorded.push(...rows) },
+    events: {
+      record: async (rows) => void recorded.push(...rows),
+      countSince: async (userHash, since) => recorded.filter((r) => r.userHash === userHash && r.at > since).length,
+    },
     provider,
     extractor,
     clientKey: 'secret',
@@ -440,6 +443,17 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal((await call(deps, { events: Array(51).fill({ name: 'extension_opened' }) }, 'secret', 'events')).status, 400);
     await call(deps, { events: [{ name: 'extension_opened', at: 0 }] }, 'secret', 'events');
     assert.ok(Math.abs(recorded[0].at - Date.now()) < 5000, 'a wild client clock falls back to server time');
+  }],
+
+  ['events: a runaway client is capped at 1000 events an hour', async () => {
+    const { deps, recorded } = setup();
+    const batch = { events: Array.from({ length: 50 }, () => ({ name: 'extension_opened' })) };
+    for (let i = 0; i < 20; i++) await call(deps, batch, 'secret', 'events'); // 1000 accepted
+    const over = await call(deps, batch, 'secret', 'events');
+    assert.equal(over.body.limited, true);
+    assert.equal(recorded.length, 1000);
+    const other = await call(deps, { events: [{ name: 'extension_opened' }] }, 'secret', 'events', OTHER_USER);
+    assert.equal(other.body.recorded, 1, 'other installs are unaffected');
   }],
 
   ['garments are composed side by side at one height on white', async () => {

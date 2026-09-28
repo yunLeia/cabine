@@ -370,8 +370,6 @@ document.addEventListener('click', (e) => {
 
 chrome.storage.local.onChanged.addListener((changes) => {
   if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes) void refresh();
-void trackPanel('extension_opened');
-startFlushing();
 });
 
 void refresh();

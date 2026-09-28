@@ -84,6 +84,7 @@ export interface EventRow {
 export type EventValue = string | number | boolean | string[];
 export interface EventSink {
   record(rows: EventRow[]): Promise<void>;
+  countSince(userHash: string, sinceMs: number): Promise<number>; // events received for this install
 }
 
 export interface Deps {
@@ -426,6 +427,9 @@ export const EVENT_NAMES = new Set([
   'photo_cleanup_failed',
 ]);
 const MAX_EVENTS = 50;
+// Normal use is a few dozen events a session. A runaway client (a bug that
+// once sent ~100 a second) must not be able to flood the table.
+const MAX_EVENTS_PER_HOUR = 1000;
 const PROP_KEY = /^[a-zA-Z][a-zA-Z0-9_]{0,29}$/;
 
 function cleanProps(raw: unknown): Record<string, EventValue> | null {
@@ -459,6 +463,10 @@ async function recordEvents(request: Request, body: Record<string, unknown>, dep
     // Trust the extension's clock within a week (offline queues), otherwise use ours.
     const at = typeof e.at === 'number' && Math.abs(e.at - t) < 7 * 86_400_000 ? e.at : t;
     rows.push({ userHash, name: e.name, props, at });
+  }
+  if (rows.length && (await deps.events.countSince(userHash, t - 3_600_000)) + rows.length > MAX_EVENTS_PER_HOUR) {
+    console.log(JSON.stringify({ event: 'events_rate_limited', dropped: body.events.length }));
+    return { recorded: 0, dropped: body.events.length, limited: true };
   }
   if (rows.length) await deps.events.record(rows);
   return { recorded: rows.length, dropped: body.events.length - rows.length };
@@ -788,6 +796,14 @@ const neonEvents: EventSink = {
        from jsonb_to_recordset($1::jsonb) as x(user_hash text, name text, props jsonb, client_at timestamptz)`,
       [JSON.stringify(payload)],
     );
+  },
+  async countSince(userHash, sinceMs) {
+    sqlClient ??= neon(env('DATABASE_URL'));
+    const rows = (await sqlClient.query('select count(*)::int as n from events where user_hash = $1 and received_at > $2', [
+      userHash,
+      new Date(sinceMs).toISOString(),
+    ])) as { n: number }[];
+    return rows[0].n;
   },
 };
 
