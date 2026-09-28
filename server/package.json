@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node test/style.test.ts"
+    "test": "node test/style.test.ts",
+    "local": "node scripts/local.ts"
   },
   "engines": {
     "node": "24.x"

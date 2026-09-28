@@ -24,6 +24,14 @@
         "scripts/fashn-trial"
       ],
       "port": 4174
+    },
+    {
+      "name": "server-local",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/scripts/local.ts"
+      ],
+      "port": 8787
     }
   ]
 }

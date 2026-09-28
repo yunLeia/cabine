@@ -1,6 +1,39 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/[action].ts": { "includeFiles": "assets/**" }
-  }
+    "api/[action].ts": {
+      "includeFiles": "assets/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/add/:token",
+      "destination": "/add.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/add/(.*)",
+      "headers": [
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cleanup",
+      "schedule": "0 4 * * *"
+    }
+  ]
 }

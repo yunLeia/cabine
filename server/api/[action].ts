@@ -1,6 +1,12 @@
-// One function, two routes (a dynamic route so both share this code):
-//   POST /api/style    render an outfit in one call (docs/decisions.md D13, D14, D16)
-//   POST /api/extract  clean product photo of one garment, for My Closet (D18, D19)
+// One function, several routes (a dynamic route, so they share this code):
+//   POST /api/style           render an outfit in one call (docs/decisions.md D13, D14, D16)
+//   POST /api/extract         clean product photo of one garment, for My Closet (D18, D19)
+//   POST /api/upload-session  QR token for adding clothes from a phone (D21)
+//   POST /api/inbox           the extension pulls phone uploads for its token
+//   POST /api/inbox-ack       ...and deletes them once saved locally
+//   POST /api/inbox-session   the phone page checks its token (token only, no client key)
+//   POST /api/inbox-upload    the phone page uploads one photo (token only, no client key)
+//   GET  /api/cleanup         daily cron: deletes expired sessions and unclaimed photos
 //
 // The extension sends original garment images, categories and titles. This
 // function owns everything that costs money: which providers and settings, the
@@ -8,9 +14,9 @@
 // (plan, then result) so the panel knows right away whether it was cached, and
 // the connection stays alive while the model works.
 
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { BlobPreconditionFailedError, get, put } from '@vercel/blob';
+import { BlobPreconditionFailedError, del, get, list, put } from '@vercel/blob';
 import sharp from 'sharp';
 
 export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
@@ -60,6 +66,8 @@ export interface Store {
   read(path: string): Promise<Stored | null>;
   // ifMatch: an etag (update only if unchanged), null (create only if missing), or undefined (overwrite).
   write(path: string, bytes: Uint8Array, contentType: string, ifMatch?: string | null): Promise<void>;
+  list(prefix: string): Promise<string[]>; // pathnames
+  remove(paths: string[]): Promise<void>;
 }
 
 export class ConflictError extends Error {}
@@ -71,6 +79,7 @@ export interface Deps {
   clientKey: string;
   dailyCreditLimit: number;
   today?: () => string;
+  now?: () => number;
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -184,6 +193,124 @@ async function reserveCredits(n: number, deps: Deps): Promise<void> {
   throw new Error('Could not update the usage counter');
 }
 
+// ---- Upload inbox: phone → extension (D21) -----------------------------------------
+// My Closet stays in the extension (IndexedDB). The server only bridges photos
+// taken on a phone: a QR token opens an inbox, the phone drops photos in, the
+// extension pulls them into its closet and deletes them here.
+
+const SESSION_MINUTES = 30;
+const MAX_SESSION_UPLOADS = 20;
+const PULL_BATCH = 4; // photos per pull, keeping each response well under the 4.5 MB limit
+
+interface Session {
+  userId: string; // the extension's anonymous id; never in the URL
+  createdAt: number;
+  expiresAt: number;
+  uploads: number;
+}
+
+const TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/; // 32 random bytes, base64url
+const USER_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Only a hash of the token is stored, so a storage listing never reveals a usable token.
+const sessionId = (token: string) => sha(`upload-session:${token}`);
+const sessionPath = (id: string) => `sessions/${id}.json`;
+const inboxPrefix = (id: string) => `inbox/${id}/`;
+
+class GoneError extends Error {}
+
+async function readSession(token: unknown, deps: Deps) {
+  if (typeof token !== 'string' || !TOKEN_FORMAT.test(token)) throw new RequestError('invalid token');
+  const id = sessionId(token);
+  const stored = await deps.store.read(sessionPath(id));
+  if (!stored) throw new GoneError('This upload link is not valid.');
+  return { id, etag: stored.etag, session: JSON.parse(Buffer.from(stored.bytes).toString()) as Session };
+}
+
+const now = (deps: Deps) => (deps.now ?? Date.now)();
+
+async function createUploadSession(request: Request, deps: Deps) {
+  const userId = request.headers.get('x-cabine-user') ?? '';
+  if (!USER_FORMAT.test(userId)) throw new RequestError('missing or invalid x-cabine-user');
+  const token = randomBytes(32).toString('base64url');
+  const session: Session = { userId, createdAt: now(deps), expiresAt: now(deps) + SESSION_MINUTES * 60_000, uploads: 0 };
+  await deps.store.write(sessionPath(sessionId(token)), new TextEncoder().encode(JSON.stringify(session)), 'application/json', null);
+  const origin = new URL(request.url).origin;
+  return { token, url: `${origin}/add/${token}`, expiresAt: session.expiresAt, maxUploads: MAX_SESSION_UPLOADS };
+}
+
+async function sessionStatus(body: Record<string, unknown>, deps: Deps) {
+  const { session } = await readSession(body.token, deps);
+  if (session.expiresAt < now(deps)) throw new GoneError('This upload session expired. Generate a new QR code from Cabine.');
+  return { expiresAt: session.expiresAt, remaining: MAX_SESSION_UPLOADS - session.uploads };
+}
+
+async function uploadToInbox(body: Record<string, unknown>, deps: Deps) {
+  const [item] = parseItems({ items: [{ category: body.category, image: body.image }] });
+  // Count the upload first (with the usual etag retry), so the cap can't be raced past.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const { id, etag, session } = await readSession(body.token, deps);
+    if (session.expiresAt < now(deps)) throw new GoneError('This upload session expired. Generate a new QR code from Cabine.');
+    if (session.uploads >= MAX_SESSION_UPLOADS) throw new RequestError(`This link already has ${MAX_SESSION_UPLOADS} photos. Make a new QR code to add more.`);
+    try {
+      const next = { ...session, uploads: session.uploads + 1 };
+      await deps.store.write(sessionPath(id), new TextEncoder().encode(JSON.stringify(next)), 'application/json', etag);
+      const itemId = randomUUID();
+      const ext = item.mime === 'image/png' ? 'png' : item.mime === 'image/webp' ? 'webp' : 'jpg';
+      await deps.store.write(`${inboxPrefix(id)}${itemId}.${item.category}.${ext}`, item.bytes, item.mime);
+      return { id: itemId, remaining: MAX_SESSION_UPLOADS - next.uploads };
+    } catch (err) {
+      if (!(err instanceof ConflictError)) throw err;
+      await new Promise((r) => setTimeout(r, 50 + Math.random() * 150 * (attempt + 1)));
+    }
+  }
+  throw new Error('Could not record the upload');
+}
+
+const INBOX_NAME = /\/([0-9a-f-]{36})\.(top|bottom|dress|outerwear|shoes)\.(jpg|png|webp)$/;
+const MIME: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
+// The extension may pull leftovers after the session expires (it was open when
+// the phone finished); only uploading stops at expiry.
+async function pullInbox(body: Record<string, unknown>, deps: Deps) {
+  const { id, session } = await readSession(body.token, deps);
+  const paths = (await deps.store.list(inboxPrefix(id))).filter((p) => INBOX_NAME.test(p)).sort();
+  const items = [];
+  for (const path of paths.slice(0, PULL_BATCH)) {
+    const [, itemId, category, ext] = INBOX_NAME.exec(path)!;
+    const stored = await deps.store.read(path);
+    if (stored) items.push({ id: itemId, category, image: dataUri(stored.bytes, MIME[ext]) });
+  }
+  return { items, more: paths.length > PULL_BATCH, expiresAt: session.expiresAt, uploads: session.uploads };
+}
+
+async function ackInbox(body: Record<string, unknown>, deps: Deps) {
+  const { id } = await readSession(body.token, deps);
+  const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : [];
+  const paths = (await deps.store.list(inboxPrefix(id))).filter((p) => ids.includes(INBOX_NAME.exec(p)?.[1] ?? ''));
+  if (paths.length) await deps.store.remove(paths);
+  return { deleted: paths.length };
+}
+
+// Photos the extension never pulled (it was closed, say) must not stay on the
+// server: a daily cron deletes each session and its inbox a day after expiry.
+const CLEANUP_AFTER_MS = 24 * 60 * 60_000;
+
+export async function cleanupSessions(deps: Deps): Promise<{ sessions: number; photos: number }> {
+  let sessions = 0;
+  let photos = 0;
+  for (const path of await deps.store.list('sessions/')) {
+    const stored = await deps.store.read(path);
+    const session = stored ? (JSON.parse(Buffer.from(stored.bytes).toString()) as Session) : null;
+    if (session && session.expiresAt + CLEANUP_AFTER_MS > now(deps)) continue;
+    const id = path.slice('sessions/'.length, -'.json'.length);
+    const inbox = await deps.store.list(inboxPrefix(id));
+    await deps.store.remove([...inbox, path]);
+    sessions++;
+    photos += inbox.length;
+  }
+  return { sessions, photos };
+}
+
 // ---- HTTP handler ---------------------------------------------------------------------------
 
 function authorized(request: Request, clientKey: string): boolean {
@@ -192,17 +319,44 @@ function authorized(request: Request, clientKey: string): boolean {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+const STREAMING = new Set(['style', 'extract']); // paid work: NDJSON progress + result
+const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack']); // the extension
+const TOKEN_ONLY = new Set(['inbox-session', 'inbox-upload']); // the phone page: its token is the credential
+
 export function createHandler(getDeps: () => Deps) {
   return async function POST(request: Request): Promise<Response> {
-    const action = new URL(request.url).pathname.split('/').pop();
-    if (action !== 'style' && action !== 'extract') return Response.json({ error: 'not found' }, { status: 404 });
+    const action = new URL(request.url).pathname.split('/').pop() ?? '';
+    if (!WITH_KEY.has(action) && !TOKEN_ONLY.has(action)) return Response.json({ error: 'not found' }, { status: 404 });
     const deps = getDeps();
-    if (!authorized(request, deps.clientKey)) return Response.json({ error: 'unauthorized' }, { status: 401 });
+    if (WITH_KEY.has(action) && !authorized(request, deps.clientKey)) return Response.json({ error: 'unauthorized' }, { status: 401 });
+
+    let body: Record<string, unknown>;
+    try {
+      body = action === 'upload-session' ? {} : ((await request.json()) as Record<string, unknown>);
+    } catch {
+      return Response.json({ error: 'invalid JSON body' }, { status: 400 });
+    }
+
+    if (!STREAMING.has(action)) {
+      try {
+        const result =
+          action === 'upload-session' ? await createUploadSession(request, deps)
+          : action === 'inbox-session' ? await sessionStatus(body, deps)
+          : action === 'inbox-upload' ? await uploadToInbox(body, deps)
+          : action === 'inbox' ? await pullInbox(body, deps)
+          : await ackInbox(body, deps);
+        return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
+      } catch (err) {
+        if (err instanceof RequestError) return Response.json({ error: err.message }, { status: 400 });
+        if (err instanceof GoneError) return Response.json({ error: err.message }, { status: 410 });
+        console.error(`[${action}]`, err);
+        return Response.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
+      }
+    }
 
     // /api/style takes { items: [...] }; /api/extract takes one garment { category, image, title? }.
     let items: Item[];
     try {
-      const body = (await request.json()) as Record<string, unknown>;
       items = parseItems(action === 'style' ? body : { items: [body] });
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'invalid JSON body';
@@ -404,6 +558,19 @@ async function fashnRun(apiKey: string, model: string, inputs: Record<string, un
 // ---- Production wiring: private Vercel Blob + FASHN ---------------------------------------
 
 const blobStore: Store = {
+  async list(prefix) {
+    const paths: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await list({ prefix, cursor, limit: 1000 });
+      paths.push(...page.blobs.map((b) => b.pathname));
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return paths;
+  },
+  async remove(paths) {
+    await del(paths);
+  },
   async read(path) {
     // Bypass the CDN cache: a cached copy of the usage counter has a stale etag,
     // so every ifMatch update would fail (seen in production as "Could not update
@@ -448,11 +615,23 @@ function env(name: string): string {
 let baseImage: Promise<Uint8Array> | undefined;
 const loadBase = () => (baseImage ??= readFile(new URL('../assets/base-mannequin.jpg', import.meta.url)).then((b) => new Uint8Array(b)));
 
-export const POST = createHandler(() => ({
+const productionDeps = (): Deps => ({
   store: blobStore,
   // The FASHN key is read only when rendering, so auth and validation work without it.
   provider: fashnProvider(() => env('FASHN_API_KEY'), loadBase),
   extractor: fashnExtractor(() => env('FASHN_API_KEY')),
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 30),
-}));
+});
+
+export const POST = createHandler(productionDeps);
+
+// Vercel Cron calls GET /api/cleanup with "Authorization: Bearer $CRON_SECRET".
+export async function GET(request: Request): Promise<Response> {
+  if (new URL(request.url).pathname.split('/').pop() !== 'cleanup') return Response.json({ error: 'not found' }, { status: 404 });
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) return Response.json({ error: 'unauthorized' }, { status: 401 });
+  const result = await cleanupSessions(productionDeps());
+  console.log(JSON.stringify({ event: 'cleanup', ...result }));
+  return Response.json(result);
+}

@@ -1,7 +1,17 @@
 # Cabine server (Vercel)
 
-One function, `POST /api/style`, that renders an outfit in one call. See
-`docs/decisions.md` D13, D14 and D16.
+One Vercel Function (`api/[action].ts`, a dynamic route) plus one static page.
+See `docs/decisions.md` D13–D21.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /api/style` | extension (key) | render an outfit in one FASHN call |
+| `POST /api/extract` | extension (key) | clean product photo of one garment |
+| `POST /api/upload-session` | extension (key) | QR token for adding clothes from a phone |
+| `POST /api/inbox`, `/api/inbox-ack` | extension (key) | pull phone uploads, then delete them |
+| `POST /api/inbox-session`, `/api/inbox-upload` | phone page (token only) | check the link, upload one photo |
+| `GET /api/cleanup` | Vercel Cron (`CRON_SECRET`) | delete expired sessions and unclaimed photos |
+| `GET /add/{token}` | phone | the upload page (`public/add.html`) |
 
 ## What it owns
 
@@ -43,6 +53,7 @@ Bad requests get a plain 400/401 JSON response before anything is spent.
 | `CABINE_CLIENT_KEY` | Shared secret the extension sends. Deters casual use only: it can be read from the extension. |
 | `DAILY_CREDIT_LIMIT` | Optional, default 30 (≈ $2.25/day) |
 | `BLOB_READ_WRITE_TOKEN` | Added automatically when a **private** Blob store is connected |
+| `CRON_SECRET` | Random; Vercel Cron sends it to `/api/cleanup` |
 
 ## Develop
 
@@ -51,6 +62,7 @@ cd server
 npm install
 npm test          # fake FASHN + in-memory store: no network, no credits
 npm run typecheck
+npm run local     # the real handler + phone page on http://localhost:8787, fakes behind it
 ```
 
 Deploy as a Vercel project whose Root Directory is `server/`.

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Add clothes · Cabine</title>
+    <style>
+      /* The phone side of "Use your phone" (docs/decisions.md D21): pick photos,
+         give each a category, upload into this QR session's inbox. No login:
+         the token in the URL is the only credential, and it can only add photos. */
+      :root {
+        --bg: #fff; --surface: #f5f2ec; --ink: #1c1b19; --muted: #6f6b64; --line: #e6e2db;
+        --accent: #2f5d50; --accent-soft: #e4eee9; --danger: #a33a2b;
+        font: 16px/1.45 system-ui, -apple-system, sans-serif; color: var(--ink);
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
+      h1 { font-size: 22px; margin: 4px 0 8px; }
+      p { margin: 0 0 12px; }
+      .muted { color: var(--muted); }
+      .small { font-size: 14px; }
+      .brand { font-weight: 700; letter-spacing: 0.02em; color: var(--muted); font-size: 14px; }
+      .actions { display: grid; gap: 10px; margin: 20px 0; }
+      .btn {
+        display: block; width: 100%; padding: 14px; border-radius: 12px; font: inherit; font-weight: 600; text-align: center;
+        border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer;
+      }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .btn:disabled { opacity: 0.5; cursor: default; }
+      .items { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; }
+      .item { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+      .item img { width: 84px; height: 104px; object-fit: cover; border-radius: 8px; background: var(--surface); flex: none; }
+      .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip {
+        font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+      }
+      .chip[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .link { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; font-size: 14px; padding: 0; cursor: pointer; }
+      .status { font-size: 14px; color: var(--muted); }
+      .status.done { color: var(--accent); }
+      .status.failed { color: var(--danger); }
+      .bar {
+        position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        background: rgba(255, 255, 255, 0.96); border-top: 1px solid var(--line);
+      }
+      .bar p { text-align: center; margin: 0 0 8px; font-size: 14px; }
+      .notice { padding: 14px; border-radius: 12px; background: var(--surface); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="brand">Cabine</div>
+    <main id="app" aria-live="polite"><p class="muted">Loading…</p></main>
+    <input id="take" type="file" accept="image/*" capture="environment" hidden />
+    <input id="choose" type="file" accept="image/*" multiple hidden />
+    <script type="module">
+      const token = location.pathname.split('/').pop();
+      const CATEGORIES = [
+        ['top', 'Top'], ['bottom', 'Bottom'], ['outerwear', 'Outerwear'], ['dress', 'Dress'], ['shoes', 'Shoes'],
+      ];
+      const MAX_SIDE = 1600; // phone photos are 4–12 MB; this keeps each upload small and the garment sharp
+
+      const state = { screen: 'loading', remaining: 20, items: [], uploading: false, added: 0, message: '' };
+      const app = document.getElementById('app');
+
+      async function api(route, body) {
+        const res = await fetch(`/api/${route}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 410) { state.screen = 'expired'; state.message = data.error; render(); throw new Error('expired'); }
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+      }
+
+      // Downsize and re-encode as JPEG. createImageBitmap applies the photo's
+      // rotation; iPhones hand the browser a JPEG even for HEIC photos.
+      async function toJpeg(file) {
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+        return canvas.toDataURL('image/jpeg', 0.85);
+      }
+
+      function addFiles(files) {
+        for (const file of files) {
+          if (!file.type.startsWith('image/')) continue;
+          state.items.push({ id: crypto.randomUUID(), file, preview: URL.createObjectURL(file), category: null, status: 'ready' });
+        }
+        state.screen = state.items.length ? 'review' : state.screen;
+        render();
+      }
+
+      async function uploadAll() {
+        state.uploading = true;
+        render();
+        for (const item of state.items.filter((i) => i.status !== 'done')) {
+          item.status = 'uploading';
+          render();
+          try {
+            const image = await toJpeg(item.file);
+            const r = await api('inbox-upload', { token, category: item.category, image });
+            state.remaining = r.remaining;
+            item.status = 'done';
+            state.added++;
+          } catch (err) {
+            if (state.screen === 'expired') return;
+            item.status = 'failed';
+            item.error = /decode|source image/i.test(String(err)) ? "This photo can't be opened. Try another." : String(err.message || err);
+          }
+          render();
+        }
+        state.uploading = false;
+        if (state.items.every((i) => i.status === 'done')) {
+          state.items.forEach((i) => URL.revokeObjectURL(i.preview));
+          state.items = [];
+          state.screen = 'done';
+        }
+        render();
+      }
+
+      const el = (tag, attrs = {}, ...children) => {
+        const e = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (v == null || v === false) continue;
+          if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+          else if (k === 'class') e.className = v;
+          else e.setAttribute(k, v === true ? '' : String(v));
+        }
+        e.append(...children.filter((c) => c != null && c !== false));
+        return e;
+      };
+      const pickButtons = () =>
+        el('div', { class: 'actions' },
+          el('button', { class: 'btn primary', onclick: () => document.getElementById('take').click() }, 'Take photos'),
+          el('button', { class: 'btn', onclick: () => document.getElementById('choose').click() }, 'Choose photos'),
+        );
+
+      function render() {
+        const pending = state.items.filter((i) => i.status !== 'done');
+        const uncategorized = pending.filter((i) => !i.category).length;
+        const failed = state.items.filter((i) => i.status === 'failed').length;
+        let view;
+
+        if (state.screen === 'loading') view = [el('p', { class: 'muted' }, 'Loading…')];
+        else if (state.screen === 'expired')
+          view = [
+            el('h1', {}, 'This link can’t be used'),
+            el('p', { class: 'notice' }, state.message || 'This upload session expired. Generate a new QR code from Cabine.'),
+          ];
+        else if (state.screen === 'start')
+          view = [
+            el('h1', {}, 'Add clothes to your Cabine closet'),
+            el('p', {}, 'Take or choose one photo per item.'),
+            el('p', { class: 'muted' }, 'Lay it flat or hang it up, and make sure the whole garment is visible.'),
+            pickButtons(),
+            el('p', { class: 'muted small' }, `You can add up to ${state.remaining} photos with this link.`),
+          ];
+        else if (state.screen === 'done')
+          view = [
+            el('h1', {}, `Added ${state.added} ${state.added === 1 ? 'piece' : 'pieces'}`),
+            el('p', {}, 'They’ll appear in My Closet on your computer in a few seconds.'),
+            state.remaining > 0 ? pickButtons() : el('p', { class: 'notice' }, 'This link is full. Make a new QR code in Cabine to add more.'),
+          ];
+        else
+          view = [
+            el('h1', {}, 'Review items'),
+            el('p', { class: 'muted' }, 'Choose what each piece is.'),
+            el('ul', { class: 'items' },
+              ...state.items.map((item) =>
+                el('li', { class: 'item' },
+                  el('img', { src: item.preview, alt: '' }),
+                  el('div', { class: 'item-body' },
+                    el('div', { class: 'chips', role: 'group', 'aria-label': 'Type of item' },
+                      ...CATEGORIES.map(([value, label]) =>
+                        el('button', {
+                          class: 'chip', 'aria-pressed': String(item.category === value),
+                          disabled: item.status === 'done' || item.status === 'uploading',
+                          onclick: () => { item.category = value; render(); },
+                        }, label),
+                      ),
+                    ),
+                    el('div', { class: 'row' },
+                      el('span', { class: `status ${item.status}` },
+                        item.status === 'uploading' ? 'Uploading…' : item.status === 'done' ? 'Added ✓' : item.status === 'failed' ? item.error || 'Upload failed' : ''),
+                      item.status !== 'done' && item.status !== 'uploading' &&
+                        el('button', { class: 'link', onclick: () => { URL.revokeObjectURL(item.preview); state.items = state.items.filter((i) => i !== item); if (!state.items.length) state.screen = 'start'; render(); } }, 'Remove'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            el('div', { class: 'actions' },
+              el('button', { class: 'btn', disabled: state.uploading, onclick: () => document.getElementById('choose').click() }, 'Add more photos'),
+            ),
+            el('div', { class: 'bar' },
+              uncategorized > 0 && el('p', { class: 'muted' }, `Pick a type for ${uncategorized === 1 ? '1 more piece' : `${uncategorized} pieces`}`),
+              failed > 0 && !state.uploading && el('p', { class: 'status failed' }, `${failed} of ${state.items.length} couldn’t upload.`),
+              el('button', {
+                class: 'btn primary', disabled: state.uploading || uncategorized > 0 || pending.length === 0 || pending.length > state.remaining,
+                onclick: uploadAll,
+              }, state.uploading ? 'Adding…' : failed > 0 ? `Retry ${failed}` : `Add ${pending.length} to My Closet`),
+            ),
+          ];
+        app.replaceChildren(...view);
+      }
+
+      for (const id of ['take', 'choose']) {
+        const input = document.getElementById(id);
+        input.addEventListener('change', () => { addFiles([...input.files]); input.value = ''; });
+      }
+
+      api('inbox-session', { token })
+        .then((s) => { state.remaining = s.remaining; state.screen = 'start'; render(); })
+        .catch((err) => { if (state.screen !== 'expired') { state.screen = 'expired'; state.message = 'This upload link is not valid. Generate a new QR code from Cabine.'; render(); } });
+    </script>
+  </body>
+</html>

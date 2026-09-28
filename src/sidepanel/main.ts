@@ -3,6 +3,7 @@ import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../sh
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
+import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, needsCleanup, styleOutfit } from './render';
 import { draftView, drawersView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
@@ -20,6 +21,7 @@ const state: ViewState = {
   choosing: null,
   menuFor: null,
   confirmBuy: null,
+  phone: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -152,6 +154,29 @@ const actions: Actions = {
     }
   },
 
+  async usePhone() {
+    stopPolling();
+    state.drawer = 'closet';
+    state.phone = null;
+    render();
+    try {
+      state.phone = await startPhoneSession();
+      pollTimer = setInterval(() => void pollPhone(), POLL_MS);
+    } catch (err) {
+      state.phone = { token: '', url: '', expiresAt: 0, added: 0, status: 'error', error: err instanceof RenderError ? err.message : undefined };
+    }
+    render();
+  },
+
+  closePhone() {
+    const p = state.phone;
+    stopPolling();
+    state.phone = null;
+    render();
+    // One last pull, in case the phone finished just before Done.
+    if (p?.token) void pullPhoneUploads(p.token).catch(() => {});
+  },
+
   askBuy(id) {
     state.confirmBuy = id;
     render();
@@ -202,6 +227,49 @@ async function cleanUp(g: Garment): Promise<void> {
   } catch (err) {
     if (!(err instanceof RenderError)) console.error('[cabine] clean-up failed', err);
     await updateGarment(g.id, { cleanStatus: 'failed' });
+  }
+}
+
+// While the QR card is open, check the inbox every few seconds. After the QR
+// expires, keep pulling briefly: the phone may still be finishing uploads it
+// started in time.
+const POLL_MS = 3000;
+const GRACE_MS = 2 * 60_000;
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+let polling = false;
+let pollFailures = 0;
+
+function stopPolling(): void {
+  clearInterval(pollTimer);
+  pollTimer = undefined;
+}
+
+async function pollPhone(): Promise<void> {
+  const p = state.phone;
+  if (!p || polling) return;
+  if (Date.now() > p.expiresAt + GRACE_MS) return stopPolling();
+  polling = true;
+  try {
+    const { added } = await pullPhoneUploads(p.token);
+    pollFailures = 0;
+    if (state.phone !== p) return;
+    if (added) {
+      p.added += added;
+      state.drawer = 'closet';
+      state.filter = 'all';
+    }
+    if (Date.now() > p.expiresAt) p.status = 'expired';
+    render();
+  } catch (err) {
+    // Network blips are expected on a laptop; only give up after several in a row.
+    if (++pollFailures >= 5 && state.phone === p) {
+      p.status = 'error';
+      p.error = err instanceof RenderError ? err.message : "Can't reach Cabine's server.";
+      stopPolling();
+      render();
+    }
+  } finally {
+    polling = false;
   }
 }
 

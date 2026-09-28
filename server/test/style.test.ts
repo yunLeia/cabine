@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import {
   ConflictError,
+  cleanupSessions,
   composeGarments,
   createHandler,
   extractPrompt,
@@ -34,6 +35,12 @@ function memoryStore(): Store & { files: Map<string, { bytes: Uint8Array; etag: 
       if (ifMatch === null && cur) throw new ConflictError('exists');
       if (ifMatch && cur?.etag !== ifMatch) throw new ConflictError('etag changed');
       files.set(path, { bytes, etag: `e${++n}` });
+    },
+    async list(prefix) {
+      return [...files.keys()].filter((k) => k.startsWith(prefix));
+    },
+    async remove(paths) {
+      for (const p of paths) files.delete(p);
     },
   };
 }
@@ -68,9 +75,13 @@ function fakeExtractor(): ExtractProvider & { calls: Item[] } {
 const img = (label: string) => `data:image/jpeg;base64,${Buffer.from(`image:${label}`).toString('base64')}`;
 const item = (category: string, label: string) => ({ category, image: img(label) });
 
-async function call(deps: Deps, body: unknown, key = 'secret', route = 'style') {
+const USER = '6f1b6c0e-3a1f-4d2b-9a7e-2f1d3c4b5a69';
+
+async function call(deps: Deps, body: unknown, key: string | null = 'secret', route = 'style') {
+  const headers: Record<string, string> = { 'x-cabine-user': USER };
+  if (key) headers.authorization = `Bearer ${key}`;
   const res = await createHandler(() => deps)(
-    new Request(`https://x/api/${route}`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify(body) }),
+    new Request(`https://cabine.test/api/${route}`, { method: 'POST', headers, body: JSON.stringify(body) }),
   );
   if (res.headers.get('content-type') !== 'application/x-ndjson') return { status: res.status, body: await res.json() };
   const events = (await res.text()).trim().split('\n').map((l) => JSON.parse(l));
@@ -245,6 +256,88 @@ const tests: [string, () => Promise<void>][] = [
     assert.match(p, /pure white #FFFFFF background/);
     assert.match(p, /no icons, badges, logos or text/);
     assert.match(p, /belts, straps/);
+  }],
+
+  ['upload session: the extension gets a QR link; the token is never stored as-is', async () => {
+    const { deps, store } = setup();
+    const r = await call(deps, {}, 'secret', 'upload-session');
+    assert.equal(r.status, 200);
+    assert.match(r.body.token, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(r.body.url, `https://cabine.test/add/${r.body.token}`);
+    assert.ok(r.body.expiresAt > Date.now() + 29 * 60_000);
+    assert.ok(![...store.files.keys()].some((k) => k.includes(r.body.token)), 'only a hash of the token is stored');
+    assert.equal((await call(deps, {}, 'nope', 'upload-session')).status, 401, 'phones cannot create sessions');
+  }],
+
+  ['phone: uploads with only its token; categories and file types are checked', async () => {
+    const { deps } = setup();
+    const { token } = (await call(deps, {}, 'secret', 'upload-session')).body;
+    const status = await call(deps, { token }, null, 'inbox-session');
+    assert.equal(status.status, 200);
+    assert.equal(status.body.remaining, 20);
+    const up = await call(deps, { token, category: 'top', image: img('phone-1') }, null, 'inbox-upload');
+    assert.equal(up.status, 200);
+    assert.equal(up.body.remaining, 19);
+    assert.equal((await call(deps, { token, category: 'hat', image: img('x') }, null, 'inbox-upload')).status, 400);
+    assert.equal((await call(deps, { token, category: 'top', image: 'data:image/gif;base64,AAAA' }, null, 'inbox-upload')).status, 400);
+    assert.equal((await call(deps, { token: 'x'.repeat(43), category: 'top', image: img('x') }, null, 'inbox-upload')).status, 410, 'unknown token');
+    assert.equal((await call(deps, { token: 'short' }, null, 'inbox-session')).status, 400);
+  }],
+
+  ['phone: a session stops taking photos when it expires or hits its limit', async () => {
+    const { deps } = setup();
+    let t = Date.now();
+    deps.now = () => t;
+    const { token } = (await call(deps, {}, 'secret', 'upload-session')).body;
+    for (let i = 0; i < 20; i++) assert.equal((await call(deps, { token, category: 'top', image: img(`p${i}`) }, null, 'inbox-upload')).status, 200);
+    const over = await call(deps, { token, category: 'top', image: img('p21') }, null, 'inbox-upload');
+    assert.equal(over.status, 400);
+    assert.match(over.body.error, /already has 20 photos/);
+    const { token: t2 } = (await call(deps, {}, 'secret', 'upload-session')).body;
+    t += 31 * 60_000;
+    const late = await call(deps, { token: t2, category: 'top', image: img('late') }, null, 'inbox-upload');
+    assert.equal(late.status, 410);
+    assert.match(late.body.error, /expired/);
+  }],
+
+  ['extension: pulls in batches, deletes on ack; the phone cannot read the inbox', async () => {
+    const { deps } = setup();
+    const { token } = (await call(deps, {}, 'secret', 'upload-session')).body;
+    for (const [i, c] of ['top', 'bottom', 'outerwear', 'shoes', 'dress', 'top'].entries()) {
+      await call(deps, { token, category: c, image: img(`p${i}`) }, null, 'inbox-upload');
+    }
+    assert.equal((await call(deps, { token }, null, 'inbox')).status, 401, 'no client key, no reading');
+    const first = await call(deps, { token }, 'secret', 'inbox');
+    assert.equal(first.body.items.length, 4);
+    assert.equal(first.body.more, true);
+    assert.equal(first.body.uploads, 6);
+    assert.match(first.body.items[0].image, /^data:image\/jpeg;base64,/);
+    assert.ok(first.body.items.every((it: { category: string }) => ['top', 'bottom', 'outerwear', 'shoes', 'dress'].includes(it.category)));
+    const ack = await call(deps, { token, ids: first.body.items.map((it: { id: string }) => it.id) }, 'secret', 'inbox-ack');
+    assert.equal(ack.body.deleted, 4);
+    const second = await call(deps, { token }, 'secret', 'inbox');
+    assert.equal(second.body.items.length, 2);
+    assert.equal(second.body.more, false);
+    await call(deps, { token, ids: second.body.items.map((it: { id: string }) => it.id) }, 'secret', 'inbox-ack');
+    assert.equal((await call(deps, { token }, 'secret', 'inbox')).body.items.length, 0);
+  }],
+
+  ['cleanup deletes sessions and unclaimed photos a day after expiry, and nothing newer', async () => {
+    const { deps, store } = setup();
+    let t = Date.now();
+    deps.now = () => t;
+    const old = (await call(deps, {}, 'secret', 'upload-session')).body.token;
+    await call(deps, { token: old, category: 'top', image: img('left-behind') }, null, 'inbox-upload');
+    t += 20 * 60 * 60_000; // 20 h later: a fresh session
+    const fresh = (await call(deps, {}, 'secret', 'upload-session')).body.token;
+    await call(deps, { token: fresh, category: 'top', image: img('new') }, null, 'inbox-upload');
+    assert.deepEqual(await cleanupSessions(deps), { sessions: 0, photos: 0 }, 'the old one expired under a day ago');
+    t += 5 * 60 * 60_000; // 25 h after the first
+    assert.deepEqual(await cleanupSessions(deps), { sessions: 1, photos: 1 });
+    const left = [...store.files.keys()].filter((k) => k.startsWith('sessions/') || k.startsWith('inbox/'));
+    assert.equal(left.filter((k) => k.startsWith('sessions/')).length, 1, 'the fresh session stays');
+    assert.equal(left.filter((k) => k.startsWith('inbox/')).length, 1, 'with its photo');
+    assert.equal((await call(deps, { token: old }, null, 'inbox-session')).status, 410, 'the old link is gone');
   }],
 
   ['garments are composed side by side at one height on white', async () => {

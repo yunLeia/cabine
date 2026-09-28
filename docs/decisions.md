@@ -288,3 +288,30 @@ docs/
   - Buying doesn't record where or at what price.
   - Passed items can't be brought back from the UI yet.
 - **Revisit when:** user tests show people want to compare several candidates, or to revisit passed items.
+
+## D21. Adding clothes from a phone: an upload inbox, not a server closet
+
+- **Context:** filling My Closet from a laptop is awkward, because your clothes are in your room and your phone has the camera. Cabine has no accounts.
+- **Options:**
+  - **A.** Make the server the home of the closet (per-user storage, sync).
+  - **B.** **An upload inbox:** the server only bridges phone uploads into the extension's closet.
+- **Decision: B.** My Closet stays authoritative in IndexedDB.
+  - **Anonymous id:** created once per install (`chrome.storage.local`), sent as `X-Cabine-User`. It groups sessions now, and will power per-user limits and analytics later. It never appears in a URL.
+  - **QR session:** `POST /api/upload-session` (extension key) creates a 256-bit random token that lasts **30 minutes** and allows **at most 20 photos, 3 MB each**. The server stores only the token's **hash**. The QR code encodes `…/add/{token}`.
+  - **Phone page** (`public/add.html`, no login, no build): take or choose photos → a category for each → remove any → "Add N to My Closet". Photos are shrunk to 1600 px JPEG on the phone (the photo's rotation is respected), uploaded one by one, and failures can be retried.
+    - The token can only **add** photos to its own inbox.
+    - Expired, full or invalid links show plain messages.
+    - The page is sent with `Referrer-Policy: no-referrer` and `noindex`.
+  - **Extension:** My Closet → **Add clothes** → *Upload from this device* / *Use your phone*.
+    - The QR card polls the inbox every 3 s (4 photos per pull), saves each photo as a closet garment, then **acknowledges so the server deletes it**. It keeps pulling for 2 minutes after expiry, in case uploads were still finishing.
+    - It shows "✓ N new pieces added" and the time left, and offers a new QR when the old one expires.
+  - **Cleanup:** a daily Vercel Cron (`GET /api/cleanup` with `CRON_SECRET`) deletes each session and any unclaimed photos a day after it expires.
+- **Why:** the same experience as a synced closet, about half the work, nothing permanent on the server, and no accounts. It can grow into A when cross-device persistence or accounts are needed.
+- **Tradeoffs:**
+  - The extension must be open with the QR card showing to receive photos; otherwise they're pulled on the next open, or deleted after a day.
+  - Photos made on the phone are only in the one browser that pulled them.
+  - The inbox relies on polling, not push.
+- **Tested:**
+  - 22 server tests (sessions, token-only phone routes, caps, expiry, batching, deletion on ack, the phone can't read the inbox, the token isn't stored, cleanup).
+  - A local end-to-end run: the phone page uploaded 3000×4000 photos as 1200×1600 JPEGs, the panel showed "2 new pieces added" within 3 s, and the server inbox was empty afterwards.
+- **Revisit when:** people want their closet on more than one computer, or accounts arrive.

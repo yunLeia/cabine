@@ -1,6 +1,7 @@
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Draft, type Garment, type Location, type Outfit } from '../shared/types';
 import { h } from './dom';
 import { imageUrl } from './image-urls';
+import { qrSvg, type PhoneSession } from './phone';
 
 // The panel's hierarchy (D18): Your Look on top is the workspace (what I'm
 // building now, and its render); the drawers below are where pieces come from.
@@ -28,6 +29,7 @@ export interface ViewState {
   choosing: Category | null; // the slot the user is picking a garment for
   menuFor: string | null; // garment whose item menu is open
   confirmBuy: string | null; // garment whose "Add to My Closet?" confirmation is showing
+  phone: PhoneSession | null; // an open "Use your phone" QR session
 }
 
 export interface Actions {
@@ -47,6 +49,8 @@ export interface Actions {
   openOriginal(g: Garment): void;
   cleanUp(g: Garment): void;
   useOriginal(g: Garment): void;
+  usePhone(): void;
+  closePhone(): void;
   removeGarment(g: Garment): void;
 }
 
@@ -234,6 +238,52 @@ function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
   );
 }
 
+// ---- Adding your own clothes (My Closet) -----------------------------------------------
+
+function addClothesView(a: Actions): HTMLElement {
+  return h(
+    'div',
+    { class: 'add-clothes' },
+    h('span', { class: 'add-label' }, 'Add clothes'),
+    h('label', { class: 'button', for: 'upload-input' }, 'Upload from this device'),
+    h('button', { type: 'button', class: 'button', onclick: a.usePhone }, 'Use your phone'),
+  );
+}
+
+function phoneView(p: PhoneSession, a: Actions): HTMLElement {
+  const added = p.added > 0 && h('p', { class: 'phone-added' }, `✓ ${p.added} new ${p.added === 1 ? 'piece' : 'pieces'} added`);
+  if (p.status === 'error') {
+    return h(
+      'div',
+      { class: 'phone-card', role: 'alert' },
+      h('p', { class: 'phone-title' }, "Couldn't start a phone session"),
+      h('p', { class: 'muted small' }, p.error ?? 'Please try again.'),
+      h('div', { class: 'phone-actions' }, h('button', { type: 'button', class: 'button', onclick: a.usePhone }, 'Try again'), h('button', { type: 'button', class: 'link small', onclick: a.closePhone }, 'Close')),
+    );
+  }
+  if (p.status === 'expired') {
+    return h(
+      'div',
+      { class: 'phone-card' },
+      h('p', { class: 'phone-title' }, 'This QR code expired'),
+      added,
+      h('div', { class: 'phone-actions' }, h('button', { type: 'button', class: 'button', onclick: a.usePhone }, 'Make a new QR code'), h('button', { type: 'button', class: 'link small', onclick: a.closePhone }, 'Done')),
+    );
+  }
+  const minutes = Math.max(1, Math.ceil((p.expiresAt - Date.now()) / 60_000));
+  const qr = h('div', { class: 'qr', role: 'img', 'aria-label': 'QR code for adding clothes from your phone' });
+  qr.innerHTML = qrSvg(p.url); // SVG generated locally from our own URL
+  return h(
+    'div',
+    { class: 'phone-card' },
+    h('p', { class: 'phone-title' }, 'Scan to add clothes from your closet'),
+    qr,
+    h('p', { class: 'muted small' }, 'Scan with your phone and add a few pieces you wear often.'),
+    added || h('p', { class: 'phone-waiting' }, 'Waiting for photos…'),
+    h('div', { class: 'phone-actions' }, h('span', { class: 'muted small' }, `Expires in ${minutes} min`), h('button', { type: 'button', class: 'button', onclick: a.closePhone }, 'Done')),
+  );
+}
+
 export function drawersView(s: ViewState, a: Actions): HTMLElement {
   const inDrawer = s.garments.filter((g) => g.location === s.drawer && g.decision !== 'pass');
   const count = (c: Category) => inDrawer.filter((g) => g.category === c).length;
@@ -308,5 +358,6 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
       )
     : h('p', { class: 'muted' }, empty());
 
-  return h('section', { class: 'drawers', id: 'drawers', 'aria-label': 'Your pieces' }, tabs, choosing, filters, grid);
+  const adding = s.drawer === 'closet' && !s.choosing && (s.phone ? phoneView(s.phone, a) : addClothesView(a));
+  return h('section', { class: 'drawers', id: 'drawers', 'aria-label': 'Your pieces' }, tabs, adding, choosing, filters, grid);
 }
