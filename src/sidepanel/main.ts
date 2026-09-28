@@ -19,6 +19,7 @@ const state: ViewState = {
   filter: 'all',
   choosing: null,
   menuFor: null,
+  confirmBuy: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -73,7 +74,10 @@ const actions: Actions = {
   },
 
   choose(slot: Category) {
+    // Pieces to wear with a candidate usually come from what you own, so start
+    // in My Closet (the Fitting Room tab is still one tap away).
     state.choosing = slot;
+    state.drawer = 'closet';
     state.filter = slot;
     state.menuFor = null;
     render();
@@ -128,13 +132,35 @@ const actions: Actions = {
   },
 
   async addToCloset(g: Garment) {
-    // Owned now: move it right away, then clean up its photo in the background
-    // if it's a model shot or busy photo (1 credit). Clean product shots are skipped.
     state.menuFor = null;
     state.drawer = 'closet'; // follow it, so the clean-up is visible
     state.filter = 'all';
-    await updateGarment(g.id, { location: 'closet' });
-    if (await needsCleanup(g)) void cleanUp(g);
+    await moveToCloset(g, {});
+  },
+
+  async decide(g: Garment, decision: 'buy' | 'save' | 'pass') {
+    state.confirmBuy = null;
+    const decided = { decision, decidedAt: Date.now() };
+    if (decision === 'buy') {
+      await moveToCloset(g, decided); // bought: it's yours now
+    } else if (decision === 'save') {
+      await updateGarment(g.id, decided); // stays in the Fitting Room, marked Saved
+    } else {
+      // Pass: out of the look and the drawers, but the record stays for counting.
+      await updateGarment(g.id, decided);
+      await setOutfit(removeFromOutfit(state.outfit, g.category));
+    }
+  },
+
+  askBuy(id) {
+    state.confirmBuy = id;
+    render();
+  },
+
+  openOriginal(g: Garment) {
+    state.menuFor = null;
+    render();
+    if (g.sourcePageUrl && /^https?:\/\//.test(g.sourcePageUrl)) void chrome.tabs.create({ url: g.sourcePageUrl });
   },
 
   cleanUp(g: Garment) {
@@ -158,6 +184,13 @@ const actions: Actions = {
     await Promise.all([deleteImage(g.imageId), g.cleanImageId ? deleteImage(g.cleanImageId) : null]);
   },
 };
+
+// Owned now: move it right away, then clean up its photo in the background if
+// it's a model shot or busy photo (1 credit). Clean product shots are skipped.
+async function moveToCloset(g: Garment, patch: Partial<Garment>): Promise<void> {
+  await updateGarment(g.id, { ...patch, location: 'closet' });
+  if (await needsCleanup(g)) void cleanUp(g);
+}
 
 async function cleanUp(g: Garment): Promise<void> {
   await updateGarment(g.id, { cleanStatus: 'pending' });

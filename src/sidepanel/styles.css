@@ -141,3 +141,16 @@ button { font: inherit; color: inherit; }
   padding: 2px 4px; border-radius: 6px; background: rgba(255, 255, 255, 0.92); color: var(--accent);
 }
 .item-badge.failed { color: #a33a2b; }
+
+/* Rendering: the pieces going into the look */
+.running-pieces { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
+.running-thumb { width: 40px; height: 52px; object-fit: contain; background: var(--surface); border-radius: 6px; }
+
+/* Buy / Save / Pass */
+.decision { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface); }
+.decision-q { margin: 0 0 8px; font-weight: 600; }
+.decision-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.decision-row + .decision-row { margin-top: 6px; }
+.decision-name { flex: 1 1 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decision-row.confirm .decision-name { flex: 1 1 auto; color: var(--ink); font-size: 13px; white-space: normal; }
+.chip.strong { background: var(--accent); border-color: var(--accent); color: var(--bg); }

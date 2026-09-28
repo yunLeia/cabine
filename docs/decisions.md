@@ -271,3 +271,20 @@ docs/
   - Generated product shots can drop or invent small details; that's why they're thumbnails only, and reversible.
   - The check misses dress forms hidden by dark garments (they stay uncleaned, free) and can flag brown or camel garments as skin (an unneeded credit).
 - **Revisit when:** clean-up errors show up in M1.6, a cheaper extractor matches FASHN's quality, or batching becomes reliable.
+
+## D20. Closing the loop: Buy / Save / Pass, and choosing pieces from My Closet
+
+- **Context:** the core loop stopped at the render. Cabine's question ("does this new piece work with what I own?") needs an answer step, and choosing the other pieces usually means choosing from what you own.
+- **Decision:**
+  - After a render is up to date, **"What are you thinking?"** appears with **Buy · Save · Pass** for each Fitting Room piece in the look.
+    - **Buy** asks "Add *X* to My Closet?" inline, then moves it (photo clean-up only if needed, D19).
+    - **Save** keeps it in the Fitting Room with a "Saved" badge.
+    - **Pass** takes it out of the look and hides it from the drawers, but **keeps the record** (`decision: 'pass'`), so decisions can be counted when analytics arrive.
+  - Choosing a slot (+ Top, or clicking a worn piece) **opens My Closet** filtered to that category; the Fitting Room tab is one tap away.
+  - Render card: while rendering it shows the pieces' thumbnails and "Usually takes about 15 seconds". A render for a changed look is dimmed with **"Outfit changed"** and the button reads **"Update outfit"**.
+  - Fitting Room menu: *Add to look / Take off*, *Open original page*, *Add to My Closet*, *Remove*.
+- **Tradeoffs:**
+  - A decision is per piece, not per look.
+  - Buying doesn't record where or at what price.
+  - Passed items can't be brought back from the UI yet.
+- **Revisit when:** user tests show people want to compare several candidates, or to revisit passed items.

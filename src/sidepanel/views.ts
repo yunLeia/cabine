@@ -27,6 +27,7 @@ export interface ViewState {
   filter: Category | 'all';
   choosing: Category | null; // the slot the user is picking a garment for
   menuFor: string | null; // garment whose item menu is open
+  confirmBuy: string | null; // garment whose "Add to My Closet?" confirmation is showing
 }
 
 export interface Actions {
@@ -41,6 +42,9 @@ export interface Actions {
   seeOutfit(): void;
   toggleMenu(id: string | null): void;
   addToCloset(g: Garment): void;
+  decide(g: Garment, decision: 'buy' | 'save' | 'pass'): void;
+  askBuy(id: string | null): void;
+  openOriginal(g: Garment): void;
   cleanUp(g: Garment): void;
   useOriginal(g: Garment): void;
   removeGarment(g: Garment): void;
@@ -83,7 +87,7 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
 
 const LOOK_ORDER: Category[] = ['outerwear', 'dress', 'top', 'bottom', 'shoes']; // head to toe
 
-function renderArea(s: ViewState, a: Actions): HTMLElement | null {
+function renderArea(s: ViewState, a: Actions, worn: Garment[]): HTMLElement | null {
   const r = s.render;
   if (!r) return null;
   const current = r.key === s.lookKey;
@@ -91,9 +95,10 @@ function renderArea(s: ViewState, a: Actions): HTMLElement | null {
     return h(
       'div',
       { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
+      h('div', { class: 'running-pieces', 'aria-hidden': 'true' }, ...worn.map((g) => img(thumbSrc(g), 'running-thumb'))),
       h('span', { class: 'spinner', 'aria-hidden': 'true' }),
       h('p', { class: 'progress-title' }, 'Styling your look…'),
-      h('p', { class: 'muted small' }, r.cached ? 'Almost there' : `${r.count} piece${r.count > 1 ? 's' : ''} · about 15 seconds`),
+      h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'Usually takes about 15 seconds'),
     );
   }
   if (r.status === 'error' && current) {
@@ -110,10 +115,39 @@ function renderArea(s: ViewState, a: Actions): HTMLElement | null {
       'div',
       { class: current ? 'render-frame done' : 'render-frame done outdated' },
       h('img', { class: 'render-img', src: r.imageUrl, alt: 'Your outfit on the mannequin' }),
-      !current && h('span', { class: 'outdated-badge' }, 'Look changed'),
+      !current && h('span', { class: 'outdated-badge' }, 'Outfit changed'),
     );
   }
   return null;
+}
+
+// After seeing the look: what about each piece you're considering? (Buy moves it
+// to My Closet, Save keeps it in the Fitting Room, Pass puts it away.)
+function decisionView(s: ViewState, a: Actions, trying: Garment[]): HTMLElement | null {
+  if (!trying.length) return null;
+  return h(
+    'div',
+    { class: 'decision' },
+    h('p', { class: 'decision-q' }, 'What are you thinking?'),
+    ...trying.map((g) =>
+      s.confirmBuy === g.id
+        ? h(
+            'div',
+            { class: 'decision-row confirm' },
+            h('span', { class: 'decision-name' }, `Add "${name(g)}" to My Closet?`),
+            h('button', { type: 'button', class: 'chip strong', onclick: () => a.decide(g, 'buy') }, 'Add'),
+            h('button', { type: 'button', class: 'link small', onclick: () => a.askBuy(null) }, 'Cancel'),
+          )
+        : h(
+            'div',
+            { class: 'decision-row' },
+            trying.length > 1 && h('span', { class: 'decision-name' }, name(g)),
+            h('button', { type: 'button', class: 'chip', onclick: () => a.askBuy(g.id) }, 'Buy'),
+            h('button', { type: 'button', class: 'chip', 'aria-pressed': g.decision === 'save', onclick: () => a.decide(g, 'save') }, g.decision === 'save' ? 'Saved' : 'Save'),
+            h('button', { type: 'button', class: 'chip', onclick: () => a.decide(g, 'pass') }, 'Pass'),
+          ),
+    ),
+  );
 }
 
 function pieceView(g: Garment, a: Actions): HTMLElement {
@@ -153,6 +187,8 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const trying = worn.filter((g) => g.location === 'fittingRoom');
   const owned = worn.filter((g) => g.location === 'closet');
   const upToDate = s.render?.key === s.lookKey && (s.render.status === 'running' || s.render.status === 'done');
+  const rendered = s.render?.key === s.lookKey && s.render.status === 'done';
+  const hasOldRender = !!s.render?.imageUrl && !upToDate;
 
   const group = (label: string, items: Garment[], cls: string) =>
     items.length ? h('div', { class: `group ${cls}` }, h('h3', {}, label), h('ul', { class: 'pieces' }, ...items.map((g) => pieceView(g, a)))) : null;
@@ -161,7 +197,8 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     'section',
     { class: 'look', 'aria-label': 'Your look' },
     h('h2', {}, 'Your look'),
-    worn.length > 0 && renderArea(s, a),
+    worn.length > 0 && renderArea(s, a, worn),
+    rendered && decisionView(s, a, trying),
     worn.length === 0 && h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.'),
     group('Trying', trying, 'trying'),
     group(trying.length ? 'With my closet' : 'From my closet', owned, 'owned'),
@@ -172,16 +209,19 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
         h('button', { type: 'button', class: label.startsWith('+') ? 'adder' : 'link small', 'aria-pressed': s.choosing === slot, onclick: () => a.choose(slot) }, label),
       ),
     ),
-    worn.length > 0 && !upToDate && h('button', { type: 'button', class: 'primary', onclick: a.seeOutfit }, 'See the outfit'),
+    worn.length > 0 && !upToDate && h('button', { type: 'button', class: 'primary', onclick: a.seeOutfit }, hasOldRender ? 'Update outfit' : 'See the outfit'),
   );
 }
 
 // ---- Drawers: Fitting Room · My Closet ----------------------------------------------
 
-function itemMenu(g: Garment, a: Actions): HTMLElement {
+function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
+  const worn = s.outfit[g.category] === g.id;
   return h(
     'div',
     { class: 'item-menu', role: 'menu' },
+    h('button', { type: 'button', role: 'menuitem', onclick: () => a.pick(g) }, worn ? 'Take off' : 'Add to look'),
+    g.sourcePageUrl && h('button', { type: 'button', role: 'menuitem', onclick: () => a.openOriginal(g) }, 'Open original page'),
     g.location === 'fittingRoom' &&
       h('button', { type: 'button', role: 'menuitem', onclick: () => a.addToCloset(g) }, 'Add to My Closet'),
     g.location === 'closet' &&
@@ -195,7 +235,7 @@ function itemMenu(g: Garment, a: Actions): HTMLElement {
 }
 
 export function drawersView(s: ViewState, a: Actions): HTMLElement {
-  const inDrawer = s.garments.filter((g) => g.location === s.drawer);
+  const inDrawer = s.garments.filter((g) => g.location === s.drawer && g.decision !== 'pass');
   const count = (c: Category) => inDrawer.filter((g) => g.category === c).length;
   const shown = inDrawer.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
 
@@ -207,7 +247,7 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
         'button',
         { type: 'button', role: 'tab', class: 'tab', 'aria-selected': s.drawer === d, onclick: () => a.openDrawer(d) },
         DRAWER_LABEL[d],
-        h('span', { class: 'tab-count' }, String(s.garments.filter((g) => g.location === d).length)),
+        h('span', { class: 'tab-count' }, String(s.garments.filter((g) => g.location === d && g.decision !== 'pass').length)),
       ),
     ),
   );
@@ -253,6 +293,7 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
               'button',
               { type: 'button', class: 'item', title: name(g), 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
               img(thumbSrc(g), 'item-img', name(g)),
+              g.location === 'fittingRoom' && g.decision === 'save' && h('span', { class: 'item-badge' }, 'Saved'),
               g.location === 'closet' && g.cleanStatus === 'pending' && h('span', { class: 'item-badge' }, 'Cleaning up…'),
               g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'item-badge failed' }, "Couldn't clean up"),
             ),
@@ -261,7 +302,7 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
               { type: 'button', class: 'item-more', 'aria-label': `More for ${name(g)}`, 'aria-expanded': s.menuFor === g.id, onclick: () => a.toggleMenu(s.menuFor === g.id ? null : g.id) },
               '⋯',
             ),
-            s.menuFor === g.id && itemMenu(g, a),
+            s.menuFor === g.id && itemMenu(s, g, a),
           ),
         ),
       )

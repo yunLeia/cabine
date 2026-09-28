@@ -28,6 +28,10 @@ export interface Garment {
   imageVersion: number; // bumped if the image is replaced; part of the render cache key
   cleanImageId?: string; // extracted product shot, for My Closet thumbnails only (renders use the original)
   cleanStatus?: 'pending' | 'failed'; // a clean-up in progress, or the last one failed
+  // The shopper's call on a Fitting Room piece after seeing it styled. Pass keeps
+  // the record (hidden from the drawers) so decisions can be counted later.
+  decision?: 'buy' | 'save' | 'pass';
+  decidedAt?: number;
   createdAt: number;
 }
 
