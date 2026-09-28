@@ -29,6 +29,7 @@ export interface ViewState {
   choosing: Category | null; // the slot the user is picking a garment for
   menuFor: string | null; // garment whose item menu is open
   confirmBuy: string | null; // garment whose "Add to My Closet?" confirmation is showing
+  justAdded: string | null; // garment that just moved to My Closet, confirmed for a few seconds
   phone: PhoneSession | null; // an open "Use your phone" QR session
 }
 
@@ -154,6 +155,13 @@ function decisionView(s: ViewState, a: Actions, trying: Garment[]): HTMLElement 
   );
 }
 
+// Buying moves a piece out of "Trying" and into My Closet; say so, or the move goes unnoticed.
+function addedNotice(s: ViewState): HTMLElement | null {
+  const g = s.justAdded ? s.byId.get(s.justAdded) : undefined;
+  if (!g || g.location !== 'closet') return null;
+  return h('p', { class: 'added-notice', role: 'status' }, `✓ Added "${name(g)}" to My Closet`);
+}
+
 function pieceView(g: Garment, a: Actions): HTMLElement {
   return h(
     'li',
@@ -203,6 +211,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     h('h2', {}, 'Your look'),
     worn.length > 0 && renderArea(s, a, worn),
     rendered && decisionView(s, a, trying),
+    addedNotice(s),
     worn.length === 0 && h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.'),
     group('Trying', trying, 'trying'),
     group(trying.length ? 'With my closet' : 'From my closet', owned, 'owned'),
@@ -344,6 +353,7 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
               { type: 'button', class: 'item', title: name(g), 'aria-pressed': s.outfit[g.category] === g.id, onclick: () => a.pick(g) },
               img(thumbSrc(g), 'item-img', name(g)),
               g.location === 'fittingRoom' && g.decision === 'save' && h('span', { class: 'item-badge' }, 'Saved'),
+              g.location === 'closet' && s.justAdded === g.id && !g.cleanStatus && h('span', { class: 'item-badge' }, 'Just added'),
               g.location === 'closet' && g.cleanStatus === 'pending' && h('span', { class: 'item-badge' }, 'Cleaning up…'),
               g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'item-badge failed' }, "Couldn't clean up"),
             ),

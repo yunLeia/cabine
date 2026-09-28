@@ -22,6 +22,7 @@ const state: ViewState = {
   choosing: null,
   menuFor: null,
   confirmBuy: null,
+  justAdded: null,
   phone: null,
 };
 
@@ -158,8 +159,6 @@ const actions: Actions = {
 
   async addToCloset(g: Garment) {
     state.menuFor = null;
-    state.drawer = 'closet'; // follow it, so the clean-up is visible
-    state.filter = 'all';
     await moveToCloset(g, {}, 'menu');
   },
 
@@ -241,7 +240,17 @@ const actions: Actions = {
 
 // Owned now: move it right away, then clean up its photo in the background if
 // it's a model shot or busy photo (1 credit). Clean product shots are skipped.
+// Follow the piece into My Closet and confirm the move for a few seconds.
+let justAddedTimer: ReturnType<typeof setTimeout> | undefined;
 async function moveToCloset(g: Garment, patch: Partial<Garment>, via: 'buy' | 'menu'): Promise<void> {
+  state.drawer = 'closet';
+  state.filter = 'all';
+  state.justAdded = g.id;
+  clearTimeout(justAddedTimer);
+  justAddedTimer = setTimeout(() => {
+    state.justAdded = null;
+    render();
+  }, 5000);
   await updateGarment(g.id, { ...patch, location: 'closet' });
   const needed = await needsCleanup(g);
   void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via, needsCleanup: needed });
