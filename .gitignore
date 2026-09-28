@@ -8,3 +8,7 @@ scripts/fashn-trial/out/
 scripts/fashn-trial/inputs/
 .vercel
 .env*
+# Provider agent skills installed by `vercel integration add` (local tooling, not Cabine)
+.agents/
+.claude/skills/
+skills-lock.json
