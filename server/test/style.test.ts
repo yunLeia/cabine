@@ -77,8 +77,11 @@ const item = (category: string, label: string) => ({ category, image: img(label)
 
 const USER = '6f1b6c0e-3a1f-4d2b-9a7e-2f1d3c4b5a69';
 
-async function call(deps: Deps, body: unknown, key: string | null = 'secret', route = 'style') {
-  const headers: Record<string, string> = { 'x-cabine-user': USER };
+const OTHER_USER = '0b7e1c2d-4f5a-4b6c-8d9e-0a1b2c3d4e5f';
+
+async function call(deps: Deps, body: unknown, key: string | null = 'secret', route = 'style', user: string | null = USER) {
+  const headers: Record<string, string> = {};
+  if (user) headers['x-cabine-user'] = user;
   if (key) headers.authorization = `Bearer ${key}`;
   const res = await createHandler(() => deps)(
     new Request(`https://cabine.test/api/${route}`, { method: 'POST', headers, body: JSON.stringify(body) }),
@@ -92,7 +95,16 @@ function setup(limit = 100) {
   const store = memoryStore();
   const provider = fakeProvider();
   const extractor = fakeExtractor();
-  const deps: Deps = { store, provider, extractor, clientKey: 'secret', dailyCreditLimit: limit, today: () => '2026-09-27' };
+  const deps: Deps = {
+    store,
+    provider,
+    extractor,
+    clientKey: 'secret',
+    dailyCreditLimit: limit,
+    userLimits: { looks: 100, cleanups: 100 },
+    today: () => '2026-09-27',
+    lockWaitMs: 1500,
+  };
   return { store, provider, extractor, deps };
 }
 
@@ -167,6 +179,66 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(r.last.code, 'daily_limit');
     assert.equal(provider.calls.length, 2);
     assert.equal((await call(deps, { items: [item('top', 'a')] })).last.type, 'result', 'cached looks still work');
+  }],
+
+  ['each person gets their own daily allowance of looks', async () => {
+    const { deps, provider } = setup();
+    deps.userLimits = { looks: 2, cleanups: 2 };
+    await call(deps, { items: [item('top', 'a')] });
+    await call(deps, { items: [item('top', 'b')] });
+    const third = await call(deps, { items: [item('top', 'c')] });
+    assert.equal(third.last.code, 'user_limit');
+    assert.match(third.last.message, /You've used today's 2 looks/);
+    assert.equal(provider.calls.length, 2);
+    assert.equal((await call(deps, { items: [item('top', 'c')] }, 'secret', 'style', OTHER_USER)).last.type, 'result', 'someone else still can');
+  }],
+
+  ['cached looks are free and never count against the allowance', async () => {
+    const { deps } = setup();
+    deps.userLimits = { looks: 1, cleanups: 1 };
+    await call(deps, { items: [item('top', 'a')] });
+    for (let i = 0; i < 3; i++) assert.equal((await call(deps, { items: [item('top', 'a')] })).last.type, 'result');
+  }],
+
+  ['looks and clean-ups have separate allowances', async () => {
+    const { deps } = setup();
+    deps.userLimits = { looks: 1, cleanups: 1 };
+    assert.equal((await call(deps, { items: [item('top', 'a')] })).last.type, 'result');
+    assert.equal((await call(deps, item('top', 'x'), 'secret', 'extract')).last.type, 'result');
+    assert.equal((await call(deps, item('top', 'y'), 'secret', 'extract')).last.code, 'user_limit');
+  }],
+
+  ['when the global budget runs out, the person keeps their allowance', async () => {
+    const { deps, store } = setup(2);
+    deps.userLimits = { looks: 10, cleanups: 10 };
+    await call(deps, { items: [item('top', 'a')] }, 'secret', 'style', OTHER_USER);
+    await call(deps, { items: [item('top', 'b')] });
+    const r = await call(deps, { items: [item('top', 'c')] });
+    assert.equal(r.last.code, 'daily_limit');
+    assert.match(r.last.message, /Cabine has reached today's limit/);
+    const mine = [...store.files.entries()].filter(([k]) => k.includes('/users/')).map(([, f]) => JSON.parse(Buffer.from(f.bytes).toString()));
+    assert.deepEqual(mine.map((c) => c.looks).sort(), [1, 1], 'the failed look was given back');
+  }],
+
+  ['paid requests need the anonymous id', async () => {
+    const { deps, provider } = setup();
+    const r = await call(deps, { items: [item('top', 'a')] }, 'secret', 'style', null);
+    assert.equal(r.status, 400);
+    assert.equal(provider.calls.length, 0);
+  }],
+
+  ['the same look requested twice at once is made once and paid once', async () => {
+    const { deps, store } = setup();
+    let calls = 0;
+    deps.provider = { id: 'slow', credits: 1, render: async () => { calls++; await new Promise((r) => setTimeout(r, 300)); return new Uint8Array([1, 2, 3]); } };
+    const [a, b] = await Promise.all([call(deps, look), call(deps, look)]);
+    assert.equal(calls, 1);
+    assert.equal(a.last.type, 'result');
+    assert.equal(b.last.type, 'result');
+    assert.equal(a.last.image, b.last.image);
+    const usage = JSON.parse(Buffer.from(store.files.get('usage/2026-09-27.json')!.bytes).toString());
+    assert.equal(usage.credits, 1);
+    assert.ok(![...store.files.keys()].some((k) => k.startsWith('locks/')), 'the lock is released');
   }],
 
   ['concurrent renders count every credit (optimistic concurrency)', async () => {

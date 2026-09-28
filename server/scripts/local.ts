@@ -42,6 +42,7 @@ const deps: Deps = {
   extractor: { id: 'local-fake', credits: 1, extract: async (item) => item.bytes },
   clientKey: process.env.CABINE_CLIENT_KEY ?? 'dev-key',
   dailyCreditLimit: 1000,
+  userLimits: { looks: 100, cleanups: 100 },
 };
 const handle = createHandler(() => deps);
 const page = new URL('../public/add.html', import.meta.url);

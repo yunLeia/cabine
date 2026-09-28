@@ -315,3 +315,20 @@ docs/
   - 22 server tests (sessions, token-only phone routes, caps, expiry, batching, deletion on ack, the phone can't read the inbox, the token isn't stored, cleanup).
   - A local end-to-end run: the phone page uploaded 3000×4000 photos as 1200×1600 JPEGs, the panel showed "2 new pieces added" within 3 s, and the server inbox was empty afterwards.
 - **Revisit when:** people want their closet on more than one computer, or accounts arrive.
+
+## D22. Spending safeguards before testers: per-person allowances, a global budget, one render per request
+
+- **Context:** one shared daily cap (30 credits) meant a single tester could use everyone's budget. Two windows or a retry could also pay twice for the same look.
+- **Decision:**
+  - **Every paid request needs the anonymous install id** (`X-Cabine-User`, D21), or it's a 400. Only a hash of the id goes into storage paths.
+  - **Per-install daily allowance:** 10 looks and 10 photo clean-ups (`USER_DAILY_LOOKS`, `USER_DAILY_CLEANUPS`). **Global budget:** 60 credits a day (`DAILY_CREDIT_LIMIT`, ≈ $4.50). The prepaid FASHN balance, with auto top-up off, is still the final ceiling.
+  - **Order:** reserve the person's allowance, then the global budget. If the global budget is out, the person's allowance is given back. Both are JSON counters updated with `ifMatch` and randomized retries (the D14 counter, generalized).
+  - **Cached results are free** and never count.
+  - **Duplicate protection:** a short-lived lock per result (`locks/<hash>`, stale after 3 min). A second identical request waits up to 100 s for the first one's result instead of paying again.
+  - **Messages written for people:** "You've used today's 10 looks. Try again tomorrow." and "Cabine has reached today's limit. Try again tomorrow."
+- **Why:** each tester gets a fair share, the total cost per day is bounded, and accidental double renders cost nothing.
+- **Tradeoffs:**
+  - Anyone who can read the client key from the extension can make new ids (a fresh id per request). The global budget still caps the damage; real per-person limits need accounts.
+  - Allowances reset at midnight UTC, not the tester's local midnight.
+- **Tested:** 28 server tests, including separate allowances per person and per kind, cache hits not counting, the allowance given back when the global budget runs out, the missing-id 400, and two simultaneous identical requests giving 1 provider call, 1 credit and a released lock.
+- **Revisit when:** accounts arrive, or tester usage shows the numbers are wrong.

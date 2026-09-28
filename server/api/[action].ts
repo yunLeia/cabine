@@ -77,9 +77,11 @@ export interface Deps {
   provider: RenderProvider;
   extractor: ExtractProvider;
   clientKey: string;
-  dailyCreditLimit: number;
+  dailyCreditLimit: number; // across everyone: the global budget
+  userLimits: { looks: number; cleanups: number }; // per person per day
   today?: () => string;
   now?: () => number;
+  lockWaitMs?: number; // how long a duplicate request waits for the first one's result
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -128,20 +130,11 @@ type Event =
   | { type: 'result'; image: string; credits: number }
   | { type: 'error'; code: string; message: string };
 
-async function renderLook(items: Item[], deps: Deps, emit: (e: Event) => void): Promise<void> {
+async function renderLook(items: Item[], userId: string, deps: Deps, emit: (e: Event) => void): Promise<void> {
   const started = Date.now();
   const path = lookPath(lookKey(items, deps.provider));
-  const hit = await deps.store.read(path);
-  const credits = hit ? 0 : deps.provider.credits;
-  emit({ type: 'plan', cached: !!hit, credits });
-
-  let image = hit?.bytes;
-  if (!image) {
-    await reserveCredits(credits, deps);
-    image = await deps.provider.render(items);
-    await deps.store.write(path, image, 'image/jpeg');
-  }
-  console.log(JSON.stringify({ event: 'look', provider: deps.provider.id, pieces: items.length, cached: !!hit, credits, seconds: (Date.now() - started) / 1000 }));
+  const { image, cached, credits } = await paidWork('looks', path, deps.provider.credits, userId, deps, emit, () => deps.provider.render(items));
+  console.log(JSON.stringify({ event: 'look', provider: deps.provider.id, pieces: items.length, cached, credits, seconds: (Date.now() - started) / 1000 }));
   emit({ type: 'result', image: dataUri(image, 'image/jpeg'), credits });
 }
 
@@ -150,39 +143,124 @@ async function renderLook(items: Item[], deps: Deps, emit: (e: Event) => void): 
 const cleanPath = (item: Item, extractor: ExtractProvider) =>
   `clean/${sha(JSON.stringify([extractor.id, item.category, item.hash, item.title ?? '']))}.jpg`;
 
-async function extractGarment(item: Item, deps: Deps, emit: (e: Event) => void): Promise<void> {
+async function extractGarment(item: Item, userId: string, deps: Deps, emit: (e: Event) => void): Promise<void> {
   const started = Date.now();
   const path = cleanPath(item, deps.extractor);
-  const hit = await deps.store.read(path);
-  const credits = hit ? 0 : deps.extractor.credits;
-  emit({ type: 'plan', cached: !!hit, credits });
-
-  let image = hit?.bytes;
-  if (!image) {
-    await reserveCredits(credits, deps);
-    image = await deps.extractor.extract(item);
-    await deps.store.write(path, image, 'image/jpeg');
-  }
-  console.log(JSON.stringify({ event: 'extract', provider: deps.extractor.id, category: item.category, cached: !!hit, credits, seconds: (Date.now() - started) / 1000 }));
+  const { image, cached, credits } = await paidWork('cleanups', path, deps.extractor.credits, userId, deps, emit, () => deps.extractor.extract(item));
+  console.log(JSON.stringify({ event: 'extract', provider: deps.extractor.id, category: item.category, cached, credits, seconds: (Date.now() - started) / 1000 }));
   emit({ type: 'result', image: dataUri(image, 'image/jpeg'), credits });
 }
 
 const dataUri = (bytes: Uint8Array, mime: string) => `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
 
-// ---- Spending limit: a daily credit counter with optimistic concurrency ----------------
+// ---- Paid work: cache, duplicate protection, then per-user and global limits --------------
 
-class LimitError extends Error {}
+type Kind = 'looks' | 'cleanups';
 
-async function reserveCredits(n: number, deps: Deps): Promise<void> {
-  const path = `usage/${(deps.today ?? (() => new Date().toISOString().slice(0, 10)))()}.json`;
+async function paidWork(
+  kind: Kind,
+  path: string,
+  credits: number,
+  userId: string,
+  deps: Deps,
+  emit: (e: Event) => void,
+  produce: () => Promise<Uint8Array>,
+): Promise<{ image: Uint8Array; cached: boolean; credits: number }> {
+  const hit = await deps.store.read(path);
+  if (hit) {
+    emit({ type: 'plan', cached: true, credits: 0 }); // cached results are free and don't count
+    return { image: hit.bytes, cached: true, credits: 0 };
+  }
+
+  // The same look or photo already being made (a second window, a retry mid-render):
+  // wait for that result instead of paying twice.
+  const lock = await takeLock(path, deps);
+  if (!lock) {
+    emit({ type: 'plan', cached: true, credits: 0 });
+    const waited = await waitFor(path, deps);
+    if (waited) return { image: waited, cached: true, credits: 0 };
+    throw new Error('Still working on this one from another request.');
+  }
+  try {
+    emit({ type: 'plan', cached: false, credits });
+    await reserve(kind, credits, userId, deps);
+    const image = await produce();
+    await deps.store.write(path, image, 'image/jpeg');
+    return { image, cached: false, credits };
+  } finally {
+    await deps.store.remove([lock]).catch(() => {});
+  }
+}
+
+const LOCK_STALE_MS = 3 * 60_000; // a crashed request's lock expires; a render takes ~15 s
+
+async function takeLock(path: string, deps: Deps): Promise<string | null> {
+  const lock = `locks/${sha(path)}.json`;
+  const body = new TextEncoder().encode(JSON.stringify({ at: now(deps) }));
+  try {
+    await deps.store.write(lock, body, 'application/json', null); // create only if missing
+    return lock;
+  } catch (err) {
+    if (!(err instanceof ConflictError)) throw err;
+  }
+  const held = await deps.store.read(lock);
+  const at = held ? (JSON.parse(Buffer.from(held.bytes).toString()) as { at: number }).at : 0;
+  if (held && now(deps) - at < LOCK_STALE_MS) return null;
+  try {
+    await deps.store.write(lock, body, 'application/json', held ? held.etag : null); // take over a stale lock
+    return lock;
+  } catch (err) {
+    if (err instanceof ConflictError) return null;
+    throw err;
+  }
+}
+
+async function waitFor(path: string, deps: Deps): Promise<Uint8Array | null> {
+  const until = Date.now() + (deps.lockWaitMs ?? 100_000);
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, Math.min(2000, deps.lockWaitMs ?? 2000)));
+    const done = await deps.store.read(path);
+    if (done) return done.bytes;
+  }
+  return null;
+}
+
+class LimitError extends Error {} // the global daily budget
+class UserLimitError extends Error {} // this person's daily allowance
+
+const today = (deps: Deps) => (deps.today ?? (() => new Date().toISOString().slice(0, 10)))();
+// The anonymous id is hashed in storage paths too.
+const userUsagePath = (userId: string, deps: Deps) => `usage/${today(deps)}/users/${sha(`user:${userId}`)}.json`;
+
+async function reserve(kind: Kind, credits: number, userId: string, deps: Deps): Promise<void> {
+  const limit = deps.userLimits[kind];
+  const noun = kind === 'looks' ? 'looks' : 'photo clean-ups';
+  await bump(userUsagePath(userId, deps), kind, 1, limit, () => new UserLimitError(`You've used today's ${limit} ${noun}. Try again tomorrow.`), deps);
+  try {
+    await bump(`usage/${today(deps)}.json`, 'credits', credits, deps.dailyCreditLimit, () => new LimitError("Cabine has reached today's limit. Try again tomorrow."), deps);
+  } catch (err) {
+    // Out of global budget: give the person's allowance back.
+    await bump(userUsagePath(userId, deps), kind, -1, null, () => new Error(), deps).catch(() => {});
+    throw err;
+  }
+}
+
+// A JSON counter file updated with optimistic concurrency (ifMatch + retry).
+async function bump(
+  path: string,
+  field: string,
+  delta: number,
+  limit: number | null,
+  overLimit: () => Error,
+  deps: Deps,
+): Promise<void> {
   for (let attempt = 0; attempt < 10; attempt++) {
     const existing = await deps.store.read(path);
-    const used = existing ? (JSON.parse(Buffer.from(existing.bytes).toString()) as { credits: number }).credits : 0;
-    if (used + n > deps.dailyCreditLimit) {
-      throw new LimitError(`Daily limit reached (${used}/${deps.dailyCreditLimit} credits used today; this look needs ${n}).`);
-    }
+    const counts = existing ? (JSON.parse(Buffer.from(existing.bytes).toString()) as Record<string, number>) : {};
+    const next = (counts[field] ?? 0) + delta;
+    if (limit !== null && next > limit) throw overLimit();
     try {
-      const body = new TextEncoder().encode(JSON.stringify({ credits: used + n }));
+      const body = new TextEncoder().encode(JSON.stringify({ ...counts, [field]: Math.max(0, next) }));
       await deps.store.write(path, body, 'application/json', existing ? existing.etag : null);
       return;
     } catch (err) {
@@ -362,7 +440,11 @@ export function createHandler(getDeps: () => Deps) {
       const message = err instanceof RequestError ? err.message : 'invalid JSON body';
       return Response.json({ error: message }, { status: 400 });
     }
-    const work = (emit: (e: Event) => void) => (action === 'style' ? renderLook(items, deps, emit) : extractGarment(items[0], deps, emit));
+    // Paid work counts against this install's daily allowance, so it needs the anonymous id.
+    const userId = request.headers.get('x-cabine-user') ?? '';
+    if (!USER_FORMAT.test(userId)) return Response.json({ error: 'missing or invalid x-cabine-user' }, { status: 400 });
+    const work = (emit: (e: Event) => void) =>
+      action === 'style' ? renderLook(items, userId, deps, emit) : extractGarment(items[0], userId, deps, emit);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -371,8 +453,9 @@ export function createHandler(getDeps: () => Deps) {
         try {
           await work(emit);
         } catch (err) {
-          const code = err instanceof LimitError ? 'daily_limit' : 'render_failed';
-          console.error(`[${action}]`, code, err);
+          const code = err instanceof UserLimitError ? 'user_limit' : err instanceof LimitError ? 'daily_limit' : 'render_failed';
+          if (code === 'render_failed') console.error(`[${action}]`, code, err);
+          else console.log(JSON.stringify({ event: code, action }));
           emit({ type: 'error', code, message: err instanceof Error ? err.message : String(err) });
         } finally {
           controller.close();
@@ -621,7 +704,8 @@ const productionDeps = (): Deps => ({
   provider: fashnProvider(() => env('FASHN_API_KEY'), loadBase),
   extractor: fashnExtractor(() => env('FASHN_API_KEY')),
   clientKey: env('CABINE_CLIENT_KEY'),
-  dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 30),
+  dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 60),
+  userLimits: { looks: Number(process.env.USER_DAILY_LOOKS ?? 10), cleanups: Number(process.env.USER_DAILY_CLEANUPS ?? 10) },
 });
 
 export const POST = createHandler(productionDeps);

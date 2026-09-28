@@ -23,8 +23,11 @@ See `docs/decisions.md` D13–D21.
 - The whole-look cache in private Vercel Blob (`looks/<hash>.jpg`), keyed by the
   provider id and each garment's category, image hash and title. The same look
   again is free.
-- Spending limits: max 5 garments, 3 MB per image, and a daily credit cap
-  (`usage/YYYY-MM-DD.json`, updated with etag-based optimistic concurrency).
+- Spending limits (D22): max 5 garments, 3 MB per image; per-install daily
+  allowances (`usage/<date>/users/<hash>.json`) and a global daily credit
+  budget (`usage/<date>.json`), both updated with etag-based optimistic
+  concurrency; cached results are free; the same look requested twice at once
+  is made once (a short-lived lock in `locks/`).
 - Timing logs per look and per provider call (`vercel logs`).
 
 ## Request / response
@@ -51,7 +54,8 @@ Bad requests get a plain 400/401 JSON response before anything is spent.
 |---|---|
 | `FASHN_API_KEY` | FASHN API key (set it yourself: `vercel env add FASHN_API_KEY`) |
 | `CABINE_CLIENT_KEY` | Shared secret the extension sends. Deters casual use only: it can be read from the extension. |
-| `DAILY_CREDIT_LIMIT` | Optional, default 30 (≈ $2.25/day) |
+| `DAILY_CREDIT_LIMIT` | Global budget, default 60 credits/day (≈ $4.50) |
+| `USER_DAILY_LOOKS`, `USER_DAILY_CLEANUPS` | Per-install daily allowance, default 10 each |
 | `BLOB_READ_WRITE_TOKEN` | Added automatically when a **private** Blob store is connected |
 | `CRON_SECRET` | Random; Vercel Cron sends it to `/api/cleanup` |
 
