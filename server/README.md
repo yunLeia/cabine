@@ -10,6 +10,7 @@ See `docs/decisions.md` D13–D21.
 | `POST /api/upload-session` | extension (key) | QR token for adding clothes from a phone |
 | `POST /api/inbox`, `/api/inbox-ack` | extension (key) | pull phone uploads, then delete them |
 | `POST /api/inbox-session`, `/api/inbox-upload` | phone page (token only) | check the link, upload one photo |
+| `POST /api/events` | extension (key) | product-analytics events into Neon Postgres (D23) |
 | `GET /api/cleanup` | Vercel Cron (`CRON_SECRET`) | delete expired sessions and unclaimed photos |
 | `GET /add/{token}` | phone | the upload page (`public/add.html`) |
 
@@ -58,6 +59,7 @@ Bad requests get a plain 400/401 JSON response before anything is spent.
 | `USER_DAILY_LOOKS`, `USER_DAILY_CLEANUPS` | Per-install daily allowance, default 10 each |
 | `BLOB_READ_WRITE_TOKEN` | Added automatically when a **private** Blob store is connected |
 | `CRON_SECRET` | Random; Vercel Cron sends it to `/api/cleanup` |
+| `DATABASE_URL` (+ `PG*`, `POSTGRES_*`) | Added by the Neon Marketplace integration (`cabine-analytics`) |
 
 ## Develop
 
@@ -67,6 +69,8 @@ npm install
 npm test          # fake FASHN + in-memory store: no network, no credits
 npm run typecheck
 npm run local     # the real handler + phone page on http://localhost:8787, fakes behind it
+npm run migrate   # apply db/schema.sql to Neon (idempotent)
+npm run report    # print the funnel and metrics from db/analytics.sql
 ```
 
 Deploy as a Vercel project whose Root Directory is `server/`.

@@ -6,6 +6,7 @@
 //   POST /api/inbox-ack       ...and deletes them once saved locally
 //   POST /api/inbox-session   the phone page checks its token (token only, no client key)
 //   POST /api/inbox-upload    the phone page uploads one photo (token only, no client key)
+//   POST /api/events          the extension's product-analytics events (D23)
 //   GET  /api/cleanup         daily cron: deletes expired sessions and unclaimed photos
 //
 // The extension sends original garment images, categories and titles. This
@@ -17,6 +18,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { BlobPreconditionFailedError, del, get, list, put } from '@vercel/blob';
+import { neon } from '@neondatabase/serverless';
 import sharp from 'sharp';
 
 export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
@@ -72,8 +74,21 @@ export interface Store {
 
 export class ConflictError extends Error {}
 
+// Analytics rows (D23): no photos, titles or URLs; the install id is hashed.
+export interface EventRow {
+  userHash: string;
+  name: string;
+  props: Record<string, EventValue>;
+  at: number; // ms since epoch, when it happened
+}
+export type EventValue = string | number | boolean | string[];
+export interface EventSink {
+  record(rows: EventRow[]): Promise<void>;
+}
+
 export interface Deps {
   store: Store;
+  events: EventSink;
   provider: RenderProvider;
   extractor: ExtractProvider;
   clientKey: string;
@@ -389,6 +404,66 @@ export async function cleanupSessions(deps: Deps): Promise<{ sessions: number; p
   return { sessions, photos };
 }
 
+// ---- Analytics: accept a batch of known events, drop anything malformed ------------------------
+
+export const EVENT_NAMES = new Set([
+  'extension_opened',
+  'store_item_captured',
+  'store_item_category_selected',
+  'closet_upload_session_created',
+  'closet_item_uploaded',
+  'fitting_room_item_selected',
+  'closet_item_selected',
+  'outfit_render_requested',
+  'outfit_render_completed',
+  'outfit_render_failed',
+  'decision_buy',
+  'decision_save',
+  'decision_pass',
+  'item_moved_to_closet',
+  'photo_cleanup_requested',
+  'photo_cleanup_completed',
+  'photo_cleanup_failed',
+]);
+const MAX_EVENTS = 50;
+const PROP_KEY = /^[a-zA-Z][a-zA-Z0-9_]{0,29}$/;
+
+function cleanProps(raw: unknown): Record<string, EventValue> | null {
+  if (raw == null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > 12) return null;
+  const out: Record<string, EventValue> = {};
+  for (const [k, v] of entries) {
+    if (!PROP_KEY.test(k)) return null;
+    if (typeof v === 'string' && v.length <= 120) out[k] = v;
+    else if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+    else if (typeof v === 'boolean') out[k] = v;
+    else if (Array.isArray(v) && v.length <= 10 && v.every((x) => typeof x === 'string' && x.length <= 60)) out[k] = v as string[];
+    else return null;
+  }
+  return out;
+}
+
+async function recordEvents(request: Request, body: Record<string, unknown>, deps: Deps) {
+  const userId = request.headers.get('x-cabine-user') ?? '';
+  if (!USER_FORMAT.test(userId)) throw new RequestError('missing or invalid x-cabine-user');
+  if (!Array.isArray(body.events)) throw new RequestError('events must be an array');
+  if (body.events.length > MAX_EVENTS) throw new RequestError(`at most ${MAX_EVENTS} events per request`);
+  const userHash = sha(`user:${userId}`);
+  const t = now(deps);
+  const rows: EventRow[] = [];
+  for (const e of body.events as Record<string, unknown>[]) {
+    const props = cleanProps(e?.props);
+    if (typeof e?.name !== 'string' || !EVENT_NAMES.has(e.name) || !props) continue;
+    // Trust the extension's clock within a week (offline queues), otherwise use ours.
+    const at = typeof e.at === 'number' && Math.abs(e.at - t) < 7 * 86_400_000 ? e.at : t;
+    rows.push({ userHash, name: e.name, props, at });
+  }
+  if (rows.length) await deps.events.record(rows);
+  return { recorded: rows.length, dropped: body.events.length - rows.length };
+}
+
 // ---- HTTP handler ---------------------------------------------------------------------------
 
 function authorized(request: Request, clientKey: string): boolean {
@@ -398,7 +473,7 @@ function authorized(request: Request, clientKey: string): boolean {
 }
 
 const STREAMING = new Set(['style', 'extract']); // paid work: NDJSON progress + result
-const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack']); // the extension
+const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events']); // the extension
 const TOKEN_ONLY = new Set(['inbox-session', 'inbox-upload']); // the phone page: its token is the credential
 
 export function createHandler(getDeps: () => Deps) {
@@ -422,6 +497,7 @@ export function createHandler(getDeps: () => Deps) {
           : action === 'inbox-session' ? await sessionStatus(body, deps)
           : action === 'inbox-upload' ? await uploadToInbox(body, deps)
           : action === 'inbox' ? await pullInbox(body, deps)
+          : action === 'events' ? await recordEvents(request, body, deps)
           : await ackInbox(body, deps);
         return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
       } catch (err) {
@@ -698,8 +774,26 @@ function env(name: string): string {
 let baseImage: Promise<Uint8Array> | undefined;
 const loadBase = () => (baseImage ??= readFile(new URL('../assets/base-mannequin.jpg', import.meta.url)).then((b) => new Uint8Array(b)));
 
+// Neon Postgres, provisioned through the Vercel Marketplace (DATABASE_URL). One
+// insert per batch via jsonb_to_recordset. Created lazily so routes that don't
+// record events work without the database.
+let sqlClient: ReturnType<typeof neon> | undefined;
+const neonEvents: EventSink = {
+  async record(rows) {
+    sqlClient ??= neon(env('DATABASE_URL'));
+    const payload = rows.map((r) => ({ user_hash: r.userHash, name: r.name, props: r.props, client_at: new Date(r.at).toISOString() }));
+    await sqlClient.query(
+      `insert into events (user_hash, name, props, client_at)
+       select user_hash, name, props, client_at
+       from jsonb_to_recordset($1::jsonb) as x(user_hash text, name text, props jsonb, client_at timestamptz)`,
+      [JSON.stringify(payload)],
+    );
+  },
+};
+
 const productionDeps = (): Deps => ({
   store: blobStore,
+  events: neonEvents,
   // The FASHN key is read only when rendering, so auth and validation work without it.
   provider: fashnProvider(() => env('FASHN_API_KEY'), loadBase),
   extractor: fashnExtractor(() => env('FASHN_API_KEY')),

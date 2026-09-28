@@ -332,3 +332,25 @@ docs/
   - Allowances reset at midnight UTC, not the tester's local midnight.
 - **Tested:** 28 server tests, including separate allowances per person and per kind, cache hits not counting, the allowance given back when the global budget runs out, the missing-id 400, and two simultaneous identical requests giving 1 provider call, 1 credit and a released lock.
 - **Revisit when:** accounts arrive, or tester usage shows the numbers are wrong.
+
+## D23. Product analytics in Neon Postgres, first-party and minimal
+
+- **Context:** the portfolio hypothesis needs evidence. The primary metric is *% of captured store items combined with at least one closet piece*, then the funnel captured → closet piece added → outfit requested → render viewed → decision. The original spec ruled out analytics services.
+- **Options:** Postgres from the Vercel Marketplace (Neon) · PostHog · a local-only log with export
+- **Decision: Neon Postgres** (`cabine-analytics`, provisioned via `vercel integration add neon`, free plan), written only by our own function.
+  - **Table** `events(user_hash, name, props jsonb, client_at, received_at)`, in `server/db/schema.sql` (`npm run migrate`).
+  - **What's recorded:** event names from a fixed list, a **hash** of the anonymous install id, and small flat properties: category, store **domain**, counts, timings, cached or not, random garment ids.
+  - **What's never recorded:** photos, product titles or page URLs.
+  - **Server** (`POST /api/events`, key + id): at most 50 per batch. Unknown names or oversized, nested properties are dropped and counted. Timestamps are trusted within a week, otherwise server time. One insert per batch (`jsonb_to_recordset`).
+  - **Extension:**
+    - `track()` appends to a local queue, one per context (worker / panel), so they never overwrite each other.
+    - The panel sends up to 50 at a time on open and every 15 s, and trims the queue only after the server accepts them, so nothing is lost offline.
+    - Capture outcome is recorded in the service worker; everything else in the panel.
+  - **Events:** extension_opened, store_item_captured, store_item_category_selected, closet_upload_session_created, closet_item_uploaded, fitting_room_item_selected, closet_item_selected, outfit_render_requested (with candidate ids and closet count) / completed (seconds, cached) / failed, decision_buy / save / pass, item_moved_to_closet, photo_cleanup_requested / completed / failed.
+  - **Queries** in `server/db/analytics.sql` (`npm run report`): primary metric, funnel, decisions, render speed and caching, capture success by store, how pieces reach the closet, clean-ups, daily activity. Checked against a synthetic dataset (the primary metric computed 1/3 = 33.3% as expected), then removed.
+- **Why:** real SQL over our own data; no third-party tracker; costs nothing at tester scale.
+- **Tradeoffs:**
+  - Funnel steps aren't strictly ordered in time.
+  - Events are client-reported (a modified extension could send junk), but the list of names and the size limits bound it.
+  - `vercel integration add` rewrites `.env.local`, so the extension's build key now lives in `.env.production.local`.
+- **Revisit when:** there are more than a few hundred installs (add retention and deletion), or funnel ordering matters (window functions over `client_at`).

@@ -5,12 +5,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node test/style.test.ts",
-    "local": "node scripts/local.ts"
+    "local": "node scripts/local.ts",
+    "report": "node --env-file=../.env.local scripts/report.ts",
+    "migrate": "node --env-file=../.env.local scripts/migrate.ts"
   },
   "engines": {
     "node": "24.x"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@vercel/blob": "^2.8.0",
     "sharp": "^0.35.5"
   },

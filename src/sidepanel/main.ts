@@ -3,6 +3,7 @@ import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../sh
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
 import type { Category, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
+import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, needsCleanup, styleOutfit } from './render';
 import { draftView, drawersView, lookView, type Actions, type RenderState, type ViewState } from './views';
@@ -44,6 +45,8 @@ const actions: Actions = {
       createdAt: Date.now(),
     };
     await addGarments([garment]);
+    if (garment.location === 'fittingRoom') void trackPanel('store_item_category_selected', { itemId: garment.id, category });
+    else void trackPanel('closet_item_uploaded', { itemId: garment.id, category, source: 'device' });
     // A store capture is the piece being considered, so it goes straight into the look.
     if (garment.location === 'fittingRoom') await setOutfit(toggleInOutfit(state.outfit, garment));
     state.drawer = garment.location;
@@ -59,6 +62,13 @@ const actions: Actions = {
 
   pick(g: Garment) {
     state.menuFor = null;
+    if (state.outfit[g.category] !== g.id) {
+      void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', {
+        itemId: g.id,
+        category: g.category,
+        viaSlot: !!state.choosing,
+      });
+    }
     if (state.choosing) {
       // Picking for a slot: wear it (even if it already was) and go back to the look.
       if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
@@ -111,19 +121,32 @@ const actions: Actions = {
     if (!garments.length || !key) return;
 
     setRender({ key, count: garments.length, status: 'running' });
+    const candidates = garments.filter((g) => g.location === 'fittingRoom');
+    void trackPanel('outfit_render_requested', {
+      pieces: garments.length,
+      fromFittingRoom: candidates.length,
+      fromCloset: garments.length - candidates.length,
+      categories: garments.map((g) => g.category),
+      candidateIds: candidates.map((g) => g.id),
+    });
+    const started = Date.now();
+    let cached = false;
     // The render keeps going if the look changes meanwhile; its result is saved
     // either way and shown if the user comes back to this look.
     try {
       const blob = await styleOutfit(state.outfit, state.byId, (e) => {
+        if (e.type === 'plan') cached = e.cached;
         if (e.type === 'plan' && state.render?.key === key) {
           state.render.cached = e.cached;
           render();
         }
       });
+      void trackPanel('outfit_render_completed', { seconds: (Date.now() - started) / 1000, cached, pieces: garments.length });
       if (state.render?.key === key) setRender({ key, count: garments.length, status: 'done', imageUrl: URL.createObjectURL(blob) });
     } catch (err) {
       if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
       const message = err instanceof RenderError ? err.message : 'Something went wrong. Please try again.';
+      void trackPanel('outfit_render_failed', { code: err instanceof RenderError ? err.code : 'unexpected' });
       if (state.render?.key === key) setRender({ key, count: garments.length, status: 'error', error: message });
     }
   },
@@ -137,14 +160,15 @@ const actions: Actions = {
     state.menuFor = null;
     state.drawer = 'closet'; // follow it, so the clean-up is visible
     state.filter = 'all';
-    await moveToCloset(g, {});
+    await moveToCloset(g, {}, 'menu');
   },
 
   async decide(g: Garment, decision: 'buy' | 'save' | 'pass') {
     state.confirmBuy = null;
     const decided = { decision, decidedAt: Date.now() };
+    void trackPanel(`decision_${decision}`, { itemId: g.id, category: g.category });
     if (decision === 'buy') {
-      await moveToCloset(g, decided); // bought: it's yours now
+      await moveToCloset(g, decided, 'buy'); // bought: it's yours now
     } else if (decision === 'save') {
       await updateGarment(g.id, decided); // stays in the Fitting Room, marked Saved
     } else {
@@ -161,6 +185,7 @@ const actions: Actions = {
     render();
     try {
       state.phone = await startPhoneSession();
+      void trackPanel('closet_upload_session_created');
       pollTimer = setInterval(() => void pollPhone(), POLL_MS);
     } catch (err) {
       state.phone = { token: '', url: '', expiresAt: 0, added: 0, status: 'error', error: err instanceof RenderError ? err.message : undefined };
@@ -174,7 +199,11 @@ const actions: Actions = {
     state.phone = null;
     render();
     // One last pull, in case the phone finished just before Done.
-    if (p?.token) void pullPhoneUploads(p.token).catch(() => {});
+    if (p?.token) {
+      void pullPhoneUploads(p.token)
+        .then(({ added }) => added.forEach((g) => void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' })))
+        .catch(() => {});
+    }
   },
 
   askBuy(id) {
@@ -190,7 +219,7 @@ const actions: Actions = {
 
   cleanUp(g: Garment) {
     state.menuFor = null;
-    void cleanUp(g);
+    void cleanUp(g, 'manual');
   },
 
   async useOriginal(g: Garment) {
@@ -212,20 +241,26 @@ const actions: Actions = {
 
 // Owned now: move it right away, then clean up its photo in the background if
 // it's a model shot or busy photo (1 credit). Clean product shots are skipped.
-async function moveToCloset(g: Garment, patch: Partial<Garment>): Promise<void> {
+async function moveToCloset(g: Garment, patch: Partial<Garment>, via: 'buy' | 'menu'): Promise<void> {
   await updateGarment(g.id, { ...patch, location: 'closet' });
-  if (await needsCleanup(g)) void cleanUp(g);
+  const needed = await needsCleanup(g);
+  void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via, needsCleanup: needed });
+  if (needed) void cleanUp(g, 'auto');
 }
 
-async function cleanUp(g: Garment): Promise<void> {
+async function cleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
   await updateGarment(g.id, { cleanStatus: 'pending' });
+  void trackPanel('photo_cleanup_requested', { itemId: g.id, category: g.category, trigger });
+  const started = Date.now();
   try {
     const clean = await cleanUpPhoto(g);
     const cleanImageId = `clean-${g.id}`;
     await putImage(cleanImageId, clean);
     await updateGarment(g.id, { cleanImageId, cleanStatus: undefined });
+    void trackPanel('photo_cleanup_completed', { itemId: g.id, seconds: (Date.now() - started) / 1000 });
   } catch (err) {
     if (!(err instanceof RenderError)) console.error('[cabine] clean-up failed', err);
+    void trackPanel('photo_cleanup_failed', { itemId: g.id, code: err instanceof RenderError ? err.code : 'unexpected' });
     await updateGarment(g.id, { cleanStatus: 'failed' });
   }
 }
@@ -252,9 +287,10 @@ async function pollPhone(): Promise<void> {
   try {
     const { added } = await pullPhoneUploads(p.token);
     pollFailures = 0;
+    for (const g of added) void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' });
     if (state.phone !== p) return;
-    if (added) {
-      p.added += added;
+    if (added.length) {
+      p.added += added.length;
       state.drawer = 'closet';
       state.filter = 'all';
     }
@@ -334,6 +370,10 @@ document.addEventListener('click', (e) => {
 
 chrome.storage.local.onChanged.addListener((changes) => {
   if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes) void refresh();
+void trackPanel('extension_opened');
+startFlushing();
 });
 
 void refresh();
+void trackPanel('extension_opened');
+startFlushing();

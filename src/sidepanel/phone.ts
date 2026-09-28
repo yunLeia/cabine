@@ -38,8 +38,8 @@ interface InboxItem {
 // Pull everything waiting in the inbox (the server sends a few per request),
 // save each photo into My Closet, then delete it from the server. Saving is
 // keyed by the inbox item id, so a repeat after a failed delete adds nothing.
-export async function pullPhoneUploads(token: string): Promise<{ added: number; expiresAt: number }> {
-  let added = 0;
+export async function pullPhoneUploads(token: string): Promise<{ added: Garment[]; expiresAt: number }> {
+  const added: Garment[] = [];
   for (;;) {
     const page = await postJson<{ items: InboxItem[]; more: boolean; expiresAt: number }>('inbox', { token });
     if (page.items.length) {
@@ -59,7 +59,7 @@ export async function pullPhoneUploads(token: string): Promise<{ added: number; 
         });
       }
       if (fresh.length) await addGarments(fresh);
-      added += fresh.length;
+      added.push(...fresh);
       await postJson('inbox-ack', { token, ids: page.items.map((i) => i.id) });
     }
     if (!page.more) return { added, expiresAt: page.expiresAt };

@@ -13,6 +13,7 @@ import {
   fashnPrompt,
   parseItems,
   type Deps,
+  type EventRow,
   type ExtractProvider,
   type Item,
   type RenderProvider,
@@ -95,8 +96,10 @@ function setup(limit = 100) {
   const store = memoryStore();
   const provider = fakeProvider();
   const extractor = fakeExtractor();
+  const recorded: EventRow[] = [];
   const deps: Deps = {
     store,
+    events: { record: async (rows) => void recorded.push(...rows) },
     provider,
     extractor,
     clientKey: 'secret',
@@ -105,7 +108,7 @@ function setup(limit = 100) {
     today: () => '2026-09-27',
     lockWaitMs: 1500,
   };
-  return { store, provider, extractor, deps };
+  return { store, provider, extractor, deps, recorded };
 }
 
 const look = { items: [item('outerwear', 'coat'), item('top', 'knit'), item('bottom', 'jeans')] };
@@ -410,6 +413,33 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(left.filter((k) => k.startsWith('sessions/')).length, 1, 'the fresh session stays');
     assert.equal(left.filter((k) => k.startsWith('inbox/')).length, 1, 'with its photo');
     assert.equal((await call(deps, { token: old }, null, 'inbox-session')).status, 410, 'the old link is gone');
+  }],
+
+  ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
+    const { deps, recorded } = setup();
+    const r = await call(deps, {
+      events: [
+        { name: 'store_item_captured', at: Date.now(), props: { domain: 'www.cos.com', itemId: 'a1', ok: true } },
+        { name: 'outfit_render_requested', props: { pieces: 3, fromCloset: 2, candidateIds: ['a1'] } },
+        { name: 'made_up_event', props: {} },
+        { name: 'closet_item_selected', props: { nested: { no: 1 } } },
+        { name: 'decision_buy', props: { title: 'x'.repeat(500) } },
+      ],
+    }, 'secret', 'events');
+    assert.deepEqual(r.body, { recorded: 2, dropped: 3 });
+    assert.deepEqual(recorded.map((e) => e.name), ['store_item_captured', 'outfit_render_requested']);
+    assert.match(recorded[0].userHash, /^[0-9a-f]{64}$/);
+    assert.notEqual(recorded[0].userHash, USER, 'the raw id is never stored');
+    assert.deepEqual(recorded[1].props, { pieces: 3, fromCloset: 2, candidateIds: ['a1'] });
+  }],
+
+  ['events: need the key and the id, bounded batch size, sane timestamps', async () => {
+    const { deps, recorded } = setup();
+    assert.equal((await call(deps, { events: [] }, null, 'events')).status, 401);
+    assert.equal((await call(deps, { events: [] }, 'secret', 'events', null)).status, 400);
+    assert.equal((await call(deps, { events: Array(51).fill({ name: 'extension_opened' }) }, 'secret', 'events')).status, 400);
+    await call(deps, { events: [{ name: 'extension_opened', at: 0 }] }, 'secret', 'events');
+    assert.ok(Math.abs(recorded[0].at - Date.now()) < 5000, 'a wild client clock falls back to server time');
   }],
 
   ['garments are composed side by side at one height on white', async () => {

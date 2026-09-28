@@ -1,3 +1,4 @@
+import { domainOf, track } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { SEED_CLOSET, SEED_VERSION } from '../shared/seed';
 import { KEYS, addGarments, getDraft, setDraft } from '../shared/store';
@@ -71,8 +72,10 @@ async function capture(srcUrl: string, pageUrl?: string, pageTitle?: string): Pr
     if (!blob.type.startsWith('image/')) throw new Error(`not an image (${blob.type || 'unknown type'})`);
     await putImage(draft.id, blob);
     await updateDraftIfCurrent(draft.id, { status: 'ready', imageId: draft.id });
+    void track('worker', 'store_item_captured', { itemId: draft.id, domain: domainOf(pageUrl), ok: true });
   } catch (err) {
     console.warn('[cabine] capture failed', srcUrl, err);
+    void track('worker', 'store_item_captured', { itemId: draft.id, domain: domainOf(pageUrl), ok: false });
     await updateDraftIfCurrent(draft.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
   }
 }
