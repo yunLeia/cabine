@@ -1,8 +1,7 @@
 node_modules
 dist
 .DS_Store
-public/closet/*
-!public/closet/README.md
+scripts/seed-cleanup/closet/
 .env.local
 scripts/fashn-trial/out/
 scripts/fashn-trial/inputs/

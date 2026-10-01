@@ -1,7 +1,7 @@
 # Seed image cleanup (dev tool, not shipped)
 
 One-off tools that turned dress-form product screenshots into the transparent
-PNGs in `public/closet/`. macOS only.
+PNGs in `scripts/seed-cleanup/closet/` (git-ignored; no longer bundled). macOS only.
 
 1. `lift.swift`: Apple Vision subject lift (`VNGenerateForegroundInstanceMaskRequest`).
    Removes the white background and most overlay buttons. Keeps the dress form,

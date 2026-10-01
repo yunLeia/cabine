@@ -147,6 +147,8 @@ button { font: inherit; color: inherit; }
 .running-thumb { width: 40px; height: 52px; object-fit: contain; background: var(--surface); border-radius: 6px; }
 
 /* Buy / Save / Pass */
+.first-run { margin: 0 0 12px; padding-left: 20px; color: var(--muted); font-size: 13px; }
+.first-run li + li { margin-top: 4px; }
 .added-notice { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft, #e4eee9); color: var(--accent); font-size: 13px; font-weight: 600; }
 .decision { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface); }
 .decision-q { margin: 0 0 8px; font-weight: 600; }

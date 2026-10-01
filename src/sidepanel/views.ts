@@ -212,7 +212,16 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     worn.length > 0 && renderArea(s, a, worn),
     rendered && decisionView(s, a, trying),
     addedNotice(s),
-    worn.length === 0 && h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.'),
+    worn.length === 0 &&
+      (s.garments.length === 0
+        ? h(
+            'ol',
+            { class: 'first-run' },
+            h('li', {}, 'Add a few clothes you own to My Closet, from your phone or this computer.'),
+            h('li', {}, 'On any store, right-click a product image and choose "Try in Cabine".'),
+            h('li', {}, 'Pick pieces and tap "See the outfit" to see them together.'),
+          )
+        : h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.')),
     group('Trying', trying, 'trying'),
     group(trying.length ? 'With my closet' : 'From my closet', owned, 'owned'),
     h(

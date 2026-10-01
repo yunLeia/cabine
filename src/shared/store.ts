@@ -4,7 +4,7 @@ import type { Draft, Garment, Outfit } from './types';
 // being built, and the pending draft. Image bytes live in IndexedDB (images.ts).
 // Both the service worker and the panel write here; the panel re-renders from
 // storage.onChanged, so it never matters which side made the change.
-export const KEYS = { garments: 'garments', outfit: 'outfit', draft: 'draft', seedVersion: 'seedVersion' } as const;
+export const KEYS = { garments: 'garments', outfit: 'outfit', draft: 'draft' } as const;
 
 export interface StoredState {
   garments: Garment[];

@@ -1,8 +1,7 @@
 import { domainOf, track } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
-import { SEED_CLOSET, SEED_VERSION } from '../shared/seed';
-import { KEYS, addGarments, getDraft, setDraft } from '../shared/store';
-import type { Draft, Garment } from '../shared/types';
+import { getDraft, setDraft } from '../shared/store';
+import type { Draft } from '../shared/types';
 
 // Background service worker: the extension's event hub. Chrome starts it when an
 // event it listens for fires and stops it when idle, so it must not hold state
@@ -32,7 +31,6 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Try in Cabine',
     contexts: ['image'], // only shown when right-clicking an <img>
   });
-  void seedCloset();
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -89,31 +87,4 @@ async function updateDraftIfCurrent(id: string, patch: Partial<Draft>): Promise<
     return;
   }
   await setDraft({ ...current, ...patch });
-}
-
-// Copy the packaged closet into the library once. Missing files are skipped:
-// the seed photos are git-ignored, so a fresh clone starts with an empty closet.
-async function seedCloset(): Promise<void> {
-  const { [KEYS.seedVersion]: seeded } = await chrome.storage.local.get(KEYS.seedVersion);
-  if (seeded === SEED_VERSION) return;
-
-  const added: Garment[] = [];
-  for (const item of SEED_CLOSET) {
-    const res = await fetch(chrome.runtime.getURL(item.file)).catch(() => null);
-    if (!res?.ok) continue;
-    const id = crypto.randomUUID();
-    await putImage(id, await res.blob());
-    added.push({
-      id,
-      location: 'closet',
-      sourceType: 'closet',
-      category: item.category,
-      title: item.title,
-      imageId: id,
-      imageVersion: 1,
-      createdAt: Date.now(),
-    });
-  }
-  await addGarments(added);
-  await chrome.storage.local.set({ [KEYS.seedVersion]: SEED_VERSION });
 }
