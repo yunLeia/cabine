@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy · Cabine</title>
+    <style>
+      /* Keep in sync with the server: RETENTION_DAYS in api/[action].ts (docs/decisions.md D25). */
+      :root { --ink: #1c1b19; --muted: #6f6b64; --line: #e6e2db; --accent: #2f5d50; font: 16px/1.6 system-ui, -apple-system, sans-serif; color: var(--ink); }
+      body { margin: 0; background: #fff; padding: 32px 16px 64px; }
+      main { max-width: 680px; margin: 0 auto; }
+      .brand { font-weight: 700; letter-spacing: 0.02em; color: var(--muted); font-size: 14px; }
+      h1 { font-size: 28px; margin: 4px 0 4px; }
+      h2 { font-size: 18px; margin: 32px 0 8px; }
+      p, li { margin: 0 0 10px; }
+      ul { padding-left: 20px; margin: 0 0 10px; }
+      .muted { color: var(--muted); }
+      .summary { padding: 14px 16px; border-radius: 12px; background: #f5f2ec; margin: 20px 0; }
+      .summary p:last-child { margin: 0; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">Cabine</div>
+      <h1>Privacy</h1>
+      <p class="muted">Effective October 1, 2026</p>
+
+      <div class="summary">
+        <p><strong>In short:</strong> there's no account and no login. Your closet stays in your browser. Photos leave your computer only when you ask Cabine to show an outfit or clean up a photo, and the results are deleted from our server after 30 days. Usage statistics never include photos, product names or page addresses.</p>
+      </div>
+
+      <h2>What stays on your computer</h2>
+      <p>Your closet, your Fitting Room, your outfits and your Buy / Save / Pass choices are stored only in your browser, inside the Cabine extension. They aren't uploaded or synced. Removing the extension deletes them.</p>
+
+      <h2>What is sent, and when</h2>
+      <ul>
+        <li><strong>When you tap "See the outfit"</strong>, the photos of the pieces in that look are sent to our server with their category (top, bottom…) and product name. The server sends them to FASHN, the image service that draws the outfit.</li>
+        <li><strong>When you clean up a photo</strong> (automatically when a store item moves to My Closet, or when you ask), that one photo, its category and name are sent the same way.</li>
+        <li><strong>When you add clothes from your phone</strong>, the photos you choose are uploaded to a temporary inbox on our server and copied into your closet on your computer. Each photo is deleted from the server as soon as your computer has it, and anything left behind is deleted a day after the QR code expires.</li>
+        <li><strong>When you right-click "Try in Cabine"</strong> on a store, the extension downloads that product image directly from the store into your browser. Nothing is sent to us at that moment.</li>
+      </ul>
+      <p>The address of the store page you were on is kept only in your browser, so you can open it again. It is never sent to our server.</p>
+
+      <h2>How long we keep it</h2>
+      <ul>
+        <li>Finished outfit pictures and cleaned-up photos are kept on our server so the same request doesn't have to be made twice. They're deleted <strong>30 days</strong> after they were made.</li>
+        <li>Phone uploads are deleted as described above, within a day at most.</li>
+        <li>Daily usage counters (how many outfits an install made today, used for the daily limit) are deleted after 8 days.</li>
+      </ul>
+      <p>FASHN processes the photos to make each result. Their handling is covered by <a href="https://fashn.ai/privacy" rel="noopener">FASHN's privacy policy</a>.</p>
+
+      <h2>Usage statistics</h2>
+      <p>To learn whether Cabine is useful, the extension records simple events, such as "a store item was captured", "an outfit was requested", how long it took, and which choice was made. Each event carries:</p>
+      <ul>
+        <li>an anonymous, random install id, which our server stores only in hashed form;</li>
+        <li>small details such as the item category, counts, timings, and the store's domain name (for example <em>www.cos.com</em>, never the full page address).</li>
+      </ul>
+      <p>Events never include photos, product names or page addresses. We don't use advertising or third-party trackers, and we don't sell or share this data.</p>
+
+      <h2>What we don't collect</h2>
+      <p>No name, email, account, location or browsing history. Cabine doesn't read the pages you visit. It only acts on an image when you right-click it and choose "Try in Cabine".</p>
+
+      <h2>Where it runs</h2>
+      <p>Our server runs on Vercel. Images are stored in Vercel Blob and usage statistics in a Neon Postgres database. Like any web host, Vercel sees the IP address of each request; Cabine doesn't store it.</p>
+
+      <h2>Your choices</h2>
+      <ul>
+        <li>Remove a piece in Cabine, or remove the extension, to delete your closet from your browser.</li>
+        <li>Results on our server expire on their own after 30 days.</li>
+        <li>Because there's no account, the statistics can't be linked to you.</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>Questions: <a href="mailto:yunleia24@gmail.com">yunleia24@gmail.com</a></p>
+    </main>
+  </body>
+</html>
