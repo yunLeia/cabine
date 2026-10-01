@@ -105,6 +105,14 @@ function typeEditor(g: Garment, a: Actions): HTMLElement {
   );
 }
 
+// While a piece's photo is being cleaned up: a hanger turning on its hook.
+const HANGER = '<svg viewBox="0 0 64 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M26 10a6 6 0 1 1 9 5.2c-1.8 1-3 2.2-3 4.3V21"/><path d="M32 21 5 37.5c-1.8 1.1-1 3.5 1 3.5h52c2 0 2.8-2.4 1-3.5z"/></g></svg>';
+function cleaningOverlay(): HTMLElement {
+  const hanger = h('span', { class: 'hanger' });
+  hanger.innerHTML = HANGER; // static markup
+  return h('span', { class: 'cleaning', role: 'status' }, hanger, h('span', { class: 'cleaning-text' }, 'Cleaning up'));
+}
+
 function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick: () => void; selected: boolean; menu?: boolean }): HTMLElement {
   return h(
     'div',
@@ -115,7 +123,7 @@ function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick: () => void;
       img(thumbSrc(g), 'tile-img', name(g)),
       h('span', { class: 'tile-check', 'aria-hidden': 'true' }, '✓'),
       g.location === 'fittingRoom' && h('span', { class: 'tile-tag' }, 'Store'),
-      g.location === 'closet' && g.cleanStatus === 'pending' && h('span', { class: 'tile-badge' }, 'Cleaning up…'),
+      g.location === 'closet' && g.cleanStatus === 'pending' && cleaningOverlay(),
       g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'tile-badge failed' }, "Couldn't clean up"),
     ),
     opts.menu &&
@@ -138,7 +146,7 @@ function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
     store && item(inLook(s, g) ? 'Take off this look' : 'Add to this look', () => a.pick(g)),
     item('Edit category', () => a.editType(g.id)),
     store && item('I got this — add to My Closet', () => a.addToCloset(g)),
-    !store && g.cleanStatus !== 'pending' && item(g.cleanImageId ? 'Clean up photo again' : 'Clean up photo', () => a.cleanUp(g)),
+    !store && g.cleanStatus === 'failed' && item('Try the clean-up again', () => a.cleanUp(g)),
     !store && g.cleanImageId && item('Use original photo', () => a.useOriginal(g)),
     item('Remove', () => a.removeGarment(g), 'danger'),
   );
@@ -177,11 +185,15 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
 const revealed = new Set<string>();
 const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
 
-function renderBlock(s: ViewState, a: Actions, worn: Garment[], compact: boolean): HTMLElement | null {
+// The picture frame never goes away: an empty mannequin until there's a look,
+// then "Putting it together…", then the result. Same size in every state, so
+// nothing below it jumps.
+const MANNEQUIN = '/mannequin.jpg';
+
+function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const r = s.render;
-  if (!r) return null;
-  const current = r.key === s.lookKey;
-  if (r.status === 'running' && current) {
+  const current = !!r && r.key === s.lookKey;
+  if (r?.status === 'running' && current) {
     return h(
       'div',
       { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
@@ -190,7 +202,7 @@ function renderBlock(s: ViewState, a: Actions, worn: Garment[], compact: boolean
       h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds'),
     );
   }
-  if (r.status === 'error' && current) {
+  if (r?.status === 'error' && current) {
     return h(
       'div',
       { class: 'render-frame error', role: 'alert' },
@@ -198,52 +210,75 @@ function renderBlock(s: ViewState, a: Actions, worn: Garment[], compact: boolean
       h('button', { type: 'button', class: 'text-button', onclick: a.seeTogether }, 'Try again'),
     );
   }
-  if (r.status === 'done' && r.imageUrl) {
+  if (r?.status === 'done' && r.imageUrl && s.lookKey) {
+    // The last result stays, faded, while you change the look.
     markRevealed(r.imageUrl);
-    // While you pick again, the last result stays small (faded once the look changes).
     return h(
       'div',
-      { class: `render-frame done${current ? '' : ' outdated'}${compact ? ' compact' : ''}` },
+      { class: `render-frame done${current ? '' : ' outdated'}` },
       h('img', { class: revealed.has(r.imageUrl) ? 'render-img' : 'render-img reveal', src: r.imageUrl, alt: 'The pieces together on a mannequin' }),
     );
   }
-  return null;
+  return h(
+    'div',
+    { class: 'render-frame idle' },
+    h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
+    h('p', { class: 'frame-hint small' }, worn.length ? 'Tap “See them together”' : 'Pick pieces below'),
+  );
 }
 
-// The look itself, always at the top: the picture (or where it will appear),
-// the pieces in it, and what you can do with it.
+// What you can do with a finished look depends on where its pieces came from.
+function resultActions(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  const saved = s.savedLooks.some((l) => l.key === s.lookKey);
+  const fromStores = worn.filter((g) => g.location === 'fittingRoom' && g.sourcePageUrl);
+  const save = (cls: string) => h('button', { type: 'button', class: cls, 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save look');
+  // All your own clothes: nothing to go back to; keeping the look is the action.
+  if (!fromStores.length) return h('div', { class: 'result-actions' }, save('btn btn-secondary btn-block'));
+  // One store piece: back to its page.
+  if (fromStores.length === 1) {
+    return h(
+      'div',
+      { class: 'result-actions' },
+      h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => a.openOriginal(fromStores[0], 'result') }, 'Open original page ↗'),
+      h('div', { class: 'result-row' }, h('span', {}), save('text-button')),
+    );
+  }
+  // Several store pieces: one link each.
+  return h(
+    'div',
+    { class: 'result-actions' },
+    h('p', { class: 'label' }, 'Open original page'),
+    h('ul', { class: 'store-links' }, ...fromStores.map((g) => h('li', {}, h('button', { type: 'button', class: 'store-link', onclick: () => a.openOriginal(g, 'result') }, img(thumbSrc(g), 'store-link-img'), h('span', {}, name(g)), h('span', { class: 'muted' }, '↗'))))),
+    h('div', { class: 'result-row' }, h('span', {}), save('text-button')),
+  );
+}
+
+// The look itself, always at the top: the frame, the pieces in it, and what
+// you can do with it.
 function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
-  const store = candidateOf(s);
   const rendered = s.render?.key === s.lookKey && s.render?.status === 'done';
   const running = s.render?.key === s.lookKey && s.render?.status === 'running';
-  const saved = s.savedLooks.some((l) => l.key === s.lookKey);
   return h(
     'section',
     { class: 'look', 'aria-label': 'Your Look' },
-    h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look'), h('p', { class: 'muted small' }, 'See it with your wardrobe.')),
-    renderBlock(s, a, worn, s.render?.key !== s.lookKey),
-    worn.length === 0
-      ? h('p', { class: 'look-empty muted' }, 'Pick pieces below to see them together.')
-      : h(
-          'ul',
-          { class: 'look-pieces' },
-          ...worn.map((g) =>
-            h(
-              'li',
-              { class: g.location === 'fittingRoom' ? 'look-piece store' : 'look-piece' },
-              img(thumbSrc(g), 'look-piece-img', name(g)),
-              h('button', { type: 'button', class: 'look-piece-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
-            ),
+    h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look')),
+    lookFrame(s, a, worn),
+    worn.length > 0 &&
+      h(
+        'ul',
+        { class: 'look-pieces' },
+        ...worn.map((g) =>
+          h(
+            'li',
+            { class: g.location === 'fittingRoom' ? 'look-piece store' : 'look-piece' },
+            img(thumbSrc(g), 'look-piece-img', name(g)),
+            h('button', { type: 'button', class: 'look-piece-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
           ),
         ),
-    worn.length > 0 && !rendered && !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', onclick: a.seeTogether }, 'See them together'),
-    rendered &&
-      h(
-        'div',
-        { class: 'result-actions' },
-        store?.sourcePageUrl && h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => a.openOriginal(store, 'result') }, 'Open original page ↗'),
-        h('div', { class: 'result-row' }, h('span', {}), h('button', { type: 'button', class: 'text-button', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save look')),
       ),
+    rendered
+      ? resultActions(s, a, worn)
+      : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together'),
   );
 }
 

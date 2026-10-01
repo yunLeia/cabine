@@ -416,3 +416,16 @@ docs/
 - **Fixing a guess:** ⋯ → "Edit category". The chips follow the piece to its new kind.
 - **Result actions:** "Open original page ↗" and "♡ Save look". "Try another look" is gone: the pieces are always right there to change.
 - **The picture:** it resolves only the first time it's shown, and it's capped at 46vh so the chips stay in view.
+
+### D26 revision 2: fixed frame, result cases, automatic clean-up
+
+- **The frame never disappears.**
+  - It shows an empty mannequin (the same base the renders use) with "Pick pieces below" until there's a look.
+  - Then it shows "Putting it together…", then the result.
+  - It's the same height in every state, so nothing jumps. "See them together" stays visible (disabled when empty).
+- **Result actions depend on where the pieces came from:**
+  - only your own clothes: "♡ Save look" (there's no page to go back to);
+  - one store piece: "Open original page ↗" plus Save;
+  - several store pieces: one "↗" link per piece, plus Save.
+- **"I got this — add to My Closet" always cleans up the photo** (1 credit). The "is it already clean?" check and the manual "Clean up photo" option are gone. While it runs, the tile shows a hanger turning on its hook. After a failure, the ⋯ menu offers "Try the clean-up again"; "Use original photo" stays.
+- The ⋯ menu flips right on the first column so it isn't cut off.

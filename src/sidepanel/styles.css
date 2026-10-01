@@ -151,6 +151,17 @@ main { padding: 0 16px; }
 .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .menu button:hover { background: var(--paper); }
 .menu .danger { color: var(--danger); }
+.menu.flip { right: auto; left: 4px; }
+
+/* A piece whose photo is being cleaned up: a hanger turning on its hook. */
+.cleaning {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: rgba(255, 255, 255, 0.78); border-radius: var(--radius); color: var(--ink);
+}
+.hanger { width: 34px; height: 26px; perspective: 120px; }
+.hanger svg { width: 100%; height: 100%; display: block; transform-origin: 50% 20%; animation: turn 1.6s linear infinite; }
+@keyframes turn { to { transform: rotateY(360deg); } }
+.cleaning-text { font-size: 10px; color: var(--muted); letter-spacing: 0.02em; }
 
 /* ---- Filters: All · Top · Bottom … ---- */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
@@ -162,18 +173,18 @@ main { padding: 0 16px; }
 .chip:hover { border-color: var(--muted); }
 .chip[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
 
-/* ---- The picture ---- */
+/* ---- The picture: one fixed frame (empty mannequin → putting it together → result) ---- */
 .render-frame {
-  position: relative; margin-top: 12px; border-radius: var(--radius); overflow: hidden;
+  position: relative; margin-top: 10px; height: 46vh; min-height: 280px; border-radius: var(--radius); overflow: hidden;
   background: #fff; border: 1px solid var(--line); display: grid; place-items: center;
 }
 .render-frame.running, .render-frame.error {
-  min-height: 300px; padding: 24px; text-align: center; gap: 6px; align-content: center;
+  padding: 24px; text-align: center; gap: 6px; align-content: center;
   background:
     radial-gradient(circle at 20% 20%, rgba(202, 216, 240, 0.35), transparent 40%),
     radial-gradient(circle at 75% 30%, rgba(242, 195, 167, 0.28), transparent 38%),
     radial-gradient(circle at 65% 80%, rgba(235, 199, 201, 0.28), transparent 42%),
-    var(--paper);
+    #fbf9f6;
 }
 .running-pieces { display: flex; justify-content: center; gap: 6px; margin-bottom: 12px; }
 .running-thumb { width: 40px; height: 52px; object-fit: contain; background: rgba(255, 255, 255, 0.7); border-radius: 4px; animation: breathe 2.4s var(--ease) infinite; }
@@ -182,19 +193,29 @@ main { padding: 0 16px; }
 .running-thumb:nth-child(4) { animation-delay: 0.9s; }
 .running-title { font-size: 16px; font-weight: 500; }
 @keyframes breathe { 50% { opacity: 0.55; } }
-.render-img { width: 100%; height: auto; max-height: 46vh; object-fit: contain; display: block; }
+.render-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .render-img.reveal { animation: resolve 600ms var(--ease) both; }
 @keyframes resolve { from { opacity: 0; filter: blur(8px); transform: translateY(6px); } }
-.render-frame.compact { background: var(--surface); }
-.render-frame.compact .render-img { max-height: 180px; width: auto; animation: none; }
-.render-frame.outdated .render-img { opacity: 0.4; filter: grayscale(0.5); animation: none; }
+.render-frame.outdated .render-img { opacity: 0.4; filter: grayscale(0.5); }
+.render-img.mannequin { opacity: 0.55; }
+.frame-hint {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); white-space: nowrap;
+  padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.9); color: var(--muted); border: 1px solid var(--line);
+}
 @media (prefers-reduced-motion: reduce) {
-  .render-img, .running-thumb { animation: none; }
+  .render-img.reveal, .running-thumb, .hanger svg { animation: none; }
 }
 
 .result-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 .result-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.with { line-height: 1.4; }
+.store-links { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.store-link {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 6px; cursor: pointer; text-align: left;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+}
+.store-link:hover { border-color: var(--ink); }
+.store-link span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.store-link-img { width: 32px; height: 40px; object-fit: contain; border-radius: 3px; flex: none; }
 
 /* ---- Empty states ---- */
 .empty-look { padding: 24px 0 8px; }

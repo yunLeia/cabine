@@ -8,7 +8,7 @@ import type { Category, Draft, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
-import { RenderError, cleanUpPhoto, getSavedRender, lookKey, needsCleanup, styleOutfit } from './render';
+import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
 import { candidateOf, closetView, draftView, fittingRoomView, headerView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
@@ -168,9 +168,10 @@ const actions: Actions = {
     state.menuFor = null;
     await updateGarment(g.id, { location: 'closet' });
     notify('Added to My Closet');
-    const needed = await needsCleanup(g);
-    void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via: 'menu', needsCleanup: needed });
-    if (needed) void cleanUp(g, 'auto');
+    // Yours now: its photo becomes a clean product shot (1 credit), shown with a
+    // turning hanger until it's ready. Renders keep using the original.
+    void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via: 'menu' });
+    void cleanUp(g, 'auto');
   },
 
   cleanUp(g: Garment) {
@@ -360,6 +361,9 @@ function render(): void {
   $('main').replaceChildren(page);
   $('notice').replaceChildren(...(state.notice ? [state.notice] : []));
   $('notice').hidden = !state.notice;
+  // A ⋯ menu opens leftwards from its tile; on the first column, flip it so it isn't cut off.
+  const menu = document.querySelector<HTMLElement>('.menu');
+  if (menu && menu.getBoundingClientRect().left < 8) menu.classList.add('flip');
 }
 
 let knownIds: Set<string> | undefined;
