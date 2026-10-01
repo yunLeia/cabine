@@ -227,11 +227,11 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   );
 }
 
-// The pieces you picked, in a row under the mannequin, head to toe. Only
-// what's chosen: no empty boxes asking to be filled. Tapping one shows its
-// kind below; × takes it off.
-function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement | null {
-  if (!worn.length) return null;
+// The pieces you picked, stacked down the right of the mannequin, head to toe.
+// Only what's chosen: no empty boxes asking to be filled. Tapping one shows
+// its kind below; × takes it off. The column is always there, so the
+// mannequin doesn't jump when the first piece arrives.
+function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   return h(
     'ul',
     { class: 'picked' },
@@ -246,7 +246,7 @@ function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement | null {
   );
 }
 
-// The look, always at the top: the mannequin, the picked pieces, then one row of actions.
+// The look, always at the top: the mannequin with the picked pieces beside it, then one row of actions.
 function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const shown = s.render?.key === s.lookKey && !s.cleared;
   const rendered = shown && s.render?.status === 'done';
@@ -256,8 +256,7 @@ function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
     'section',
     { class: 'look', 'aria-label': 'Your Look' },
     h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look')),
-    lookFrame(s, a, worn),
-    picked(s, a, worn),
+    h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)),
     rendered
       ? h(
           'div',

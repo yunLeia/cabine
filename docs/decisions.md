@@ -447,5 +447,5 @@ docs/
 
 - The Look Board trial was reverted (it didn't feel right). The empty mannequin stays.
 - The vertical OUTER / TOP / BOTTOM / SHOES rail is gone: empty category boxes read as "fill every slot".
-- In its place, a horizontal row under the mannequin shows only the chosen pieces, head to toe. Each has × to take it off and an oxblood edge for store pieces; tapping one switches the chips to its kind.
-- The frame is now full width, so its height is capped at 56vh to keep the row and the button in view. The whole figure still shows.
+- In its place, a column to the right of the mannequin shows only the chosen pieces, stacked head to toe. Each has × to take it off and an oxblood edge for store pieces; tapping one switches the chips to its kind. The column is always reserved, so the mannequin doesn't shift when the first piece arrives.
+  - A horizontal row under the mannequin was tried first; the user preferred the column.
