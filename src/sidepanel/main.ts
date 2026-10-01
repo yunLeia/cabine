@@ -22,7 +22,6 @@ const state: ViewState = {
   lookKey: null,
   render: null,
   view: 'look',
-  editing: false,
   filter: 'all',
   menuFor: null,
   typeFor: null,
@@ -57,12 +56,14 @@ const actions: Actions = {
   },
 
   consider(g: Garment) {
-    // A store piece from the Fitting Room: start a fresh look around it.
+    // From the Fitting Room page: wear it, and show it in its kind on the main page.
     state.menuFor = null;
     void trackPanel('fitting_room_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
     state.view = 'look';
-    void setOutfit({ [g.category]: g.id });
+    state.filter = g.category;
+    if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
     render();
+    window.scrollTo({ top: 0 });
   },
 
   takeOff(g: Garment) {
@@ -83,7 +84,6 @@ const actions: Actions = {
     const key = state.lookKey;
     if (!garments.length || !key) return;
 
-    state.editing = false;
     setRender({ key, count: garments.length, status: 'running' });
     void updateGarments(garments.map((g) => g.id), { lastUsedAt: Date.now() });
     const fromStore = garments.filter((g) => g.location === 'fittingRoom');
@@ -116,18 +116,6 @@ const actions: Actions = {
     }
   },
 
-  tryAnother() {
-    // Keep the picture; open the closet again under it.
-    state.editing = true;
-    void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
-    render();
-  },
-
-  backToLook() {
-    state.editing = false;
-    render();
-  },
-
   async toggleSave() {
     const key = state.lookKey;
     if (!key) return;
@@ -142,7 +130,6 @@ const actions: Actions = {
 
   openSavedLook(l) {
     state.view = 'look';
-    state.editing = false;
     void setOutfit(pruneOutfit(l.outfit, state.byId));
     render();
   },
@@ -171,6 +158,7 @@ const actions: Actions = {
     if (c === g.category) return render();
     void trackPanel('category_edited', { itemId: g.id, from: g.category, to: c, location: g.location });
     const wasOn = state.outfit[g.category] === g.id;
+    if (state.filter === g.category) state.filter = c; // follow the piece to its new tab
     await updateGarment(g.id, { category: c });
     // Still in the look, now in its right place.
     if (wasOn) await setOutfit(toggleInOutfit(removeFromOutfit(state.outfit, g.category), { ...g, category: c }));
@@ -257,8 +245,7 @@ async function saveFromDraft(d: Draft, category: Category, inferred: boolean): P
   await addGarments([g]);
   if (g.location === 'fittingRoom') {
     void trackPanel('store_item_category_selected', { itemId: g.id, category, inferred });
-    await setOutfit({ [category]: g.id });
-    state.view = 'look';
+    await setOutfit(toggleInOutfit(state.outfit, g)); // straight into the look, in its kind
   } else {
     void trackPanel('closet_item_uploaded', { itemId: g.id, category, source: 'device' });
     if (candidateOf(state)) await setOutfit(toggleInOutfit(state.outfit, g));
@@ -375,7 +362,7 @@ function render(): void {
   $('notice').hidden = !state.notice;
 }
 
-let lastCandidate: string | undefined;
+let knownIds: Set<string> | undefined;
 
 async function refresh(): Promise<void> {
   const stored = await loadState();
@@ -391,15 +378,17 @@ async function refresh(): Promise<void> {
     ...stored.savedLooks.map((l) => l.key),
   ]);
 
-  // A new store piece in the look (just captured, or picked in the Fitting Room):
-  // go to it and ask what goes with it.
-  const candidate = candidateOf(state)?.id;
-  if (candidate && candidate !== lastCandidate) {
+  // A store piece just arrived (captured): show the main page on its kind, so
+  // it's right there next to what you own. Its category is a guess; "⋯ → Edit
+  // category" fixes it.
+  const arrived = knownIds ? stored.garments.filter((g) => !knownIds!.has(g.id) && g.location === 'fittingRoom') : [];
+  knownIds = new Set(stored.garments.map((g) => g.id));
+  if (arrived.length) {
     state.view = 'look';
-    state.editing = false;
+    state.filter = arrived[arrived.length - 1].category;
     state.typeFor = null;
+    window.scrollTo({ top: 0 });
   }
-  lastCandidate = candidate;
 
   // Show a look's saved render when coming back to it; keep an older render
   // (faded) while the look is being changed; clear it when the look is empty.

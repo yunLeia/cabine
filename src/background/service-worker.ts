@@ -1,7 +1,8 @@
 import { domainOf, track } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { addGarments, getDraft, setDraft, setOutfit } from '../shared/store';
+import { toggleInOutfit } from '../shared/outfit';
+import { addGarments, getDraft, loadState, setDraft, setOutfit } from '../shared/store';
 import type { Draft, Garment } from '../shared/types';
 
 // Background service worker: the extension's event hub. Chrome starts it when an
@@ -88,23 +89,22 @@ async function capture(srcUrl: string, pageUrl?: string, pageTitle?: string): Pr
   }
 }
 
-// A store capture becomes the piece in a fresh look: "What would you wear this with?"
+// A store capture goes straight into the look, in its (guessed) kind.
 async function saveCapture(d: Draft, category: Garment['category']): Promise<void> {
-  await addGarments([
-    {
-      id: d.id,
-      location: 'fittingRoom',
-      sourceType: 'shopping',
-      category,
-      title: d.title,
-      sourcePageUrl: d.sourcePageUrl,
-      sourceImageUrl: d.sourceImageUrl,
-      imageId: d.imageId!,
-      imageVersion: 1,
-      createdAt: Date.now(),
-    },
-  ]);
-  await setOutfit({ [category]: d.id });
+  const g: Garment = {
+    id: d.id,
+    location: 'fittingRoom',
+    sourceType: 'shopping',
+    category,
+    title: d.title,
+    sourcePageUrl: d.sourcePageUrl,
+    sourceImageUrl: d.sourceImageUrl,
+    imageId: d.imageId!,
+    imageVersion: 1,
+    createdAt: Date.now(),
+  };
+  await addGarments([g]);
+  await setOutfit(toggleInOutfit((await loadState()).outfit, g));
   await setDraft(null);
 }
 

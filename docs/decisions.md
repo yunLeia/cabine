@@ -408,3 +408,11 @@ docs/
   - A wrong guess costs a render if it isn't noticed. "Top · Edit" sits next to the piece to make that unlikely, and the report measures it.
   - Titles that use " – " for colour lose it in the display name ("Camisole – Navy" shows as "Camisole").
 - **Revisit when:** the correction rate is high (then classify the image), or people want to compare several store pieces at once.
+
+### D26 revision (after review)
+
+- **Main page is fixed:** the Your Look section (picture, the pieces in it, actions) sits on top, and every piece (store and owned together) sits below under the "All · Top · Bottom…" chips. Nothing replaces these sections.
+- **No "From the store" step:** a capture goes straight into the look in its guessed kind, and the chips switch to that kind. Store pieces wear a small STORE tag and an oxblood edge.
+- **Fixing a guess:** ⋯ → "Edit category". The chips follow the piece to its new kind.
+- **Result actions:** "Open original page ↗" and "♡ Save look". "Try another look" is gone: the pieces are always right there to change.
+- **The picture:** it resolves only the first time it's shown, and it's capped at 46vh so the chips stay in view.

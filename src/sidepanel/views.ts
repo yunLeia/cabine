@@ -29,7 +29,6 @@ export interface ViewState {
   lookKey: string | null; // the current look's key; null when nothing is selected
   render: RenderState | null; // the latest render; dimmed when it's for an older look
   view: View;
-  editing: boolean; // "Try another look": pick again under the last result
   filter: Category | 'all';
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
@@ -41,12 +40,10 @@ export interface Actions {
   saveDraft(category: Category): void;
   discardDraft(): void;
   pick(g: Garment): void; // put on / take off, in the current look
-  consider(g: Garment): void; // start a fresh look around this store piece
+  consider(g: Garment): void; // from the Fitting Room page: wear it, back on the main page
   takeOff(g: Garment): void;
   setView(v: View): void;
   seeTogether(): void;
-  tryAnother(): void;
-  backToLook(): void;
   toggleSave(): void;
   openSavedLook(l: SavedLook): void;
   openOriginal(g: Garment, from: 'result' | 'menu'): void;
@@ -117,6 +114,7 @@ function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick: () => void;
       { type: 'button', class: 'tile', title: name(g), 'aria-pressed': opts.selected, onclick: opts.onclick },
       img(thumbSrc(g), 'tile-img', name(g)),
       h('span', { class: 'tile-check', 'aria-hidden': 'true' }, '✓'),
+      g.location === 'fittingRoom' && h('span', { class: 'tile-tag' }, 'Store'),
       g.location === 'closet' && g.cleanStatus === 'pending' && h('span', { class: 'tile-badge' }, 'Cleaning up…'),
       g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'tile-badge failed' }, "Couldn't clean up"),
     ),
@@ -138,7 +136,7 @@ function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
     { class: 'menu', role: 'menu' },
     store && g.sourcePageUrl && item('Open original page ↗', () => a.openOriginal(g, 'menu')),
     store && item(inLook(s, g) ? 'Take off this look' : 'Add to this look', () => a.pick(g)),
-    item('Change type', () => a.editType(g.id)),
+    item('Edit category', () => a.editType(g.id)),
     store && item('I got this — add to My Closet', () => a.addToCloset(g)),
     !store && g.cleanStatus !== 'pending' && item(g.cleanImageId ? 'Clean up photo again' : 'Clean up photo', () => a.cleanUp(g)),
     !store && g.cleanImageId && item('Use original photo', () => a.useOriginal(g)),
@@ -175,6 +173,10 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
 
 // ---- Your Look --------------------------------------------------------------------
 
+// The panel is redrawn on every change; the picture resolves only the first time it's shown.
+const revealed = new Set<string>();
+const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
+
 function renderBlock(s: ViewState, a: Actions, worn: Garment[], compact: boolean): HTMLElement | null {
   const r = s.render;
   if (!r) return null;
@@ -197,51 +199,57 @@ function renderBlock(s: ViewState, a: Actions, worn: Garment[], compact: boolean
     );
   }
   if (r.status === 'done' && r.imageUrl) {
+    markRevealed(r.imageUrl);
     // While you pick again, the last result stays small (faded once the look changes).
     return h(
       'div',
       { class: `render-frame done${current ? '' : ' outdated'}${compact ? ' compact' : ''}` },
-      h('img', { class: 'render-img', src: r.imageUrl, alt: 'The pieces together on a mannequin' }),
+      h('img', { class: revealed.has(r.imageUrl) ? 'render-img' : 'render-img reveal', src: r.imageUrl, alt: 'The pieces together on a mannequin' }),
     );
   }
   return null;
 }
 
-function resultActions(s: ViewState, a: Actions, candidate: Garment | undefined, worn: Garment[]): HTMLElement {
+// The look itself, always at the top: the picture (or where it will appear),
+// the pieces in it, and what you can do with it.
+function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  const store = candidateOf(s);
+  const rendered = s.render?.key === s.lookKey && s.render?.status === 'done';
+  const running = s.render?.key === s.lookKey && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey);
-  const others = worn.filter((g) => g !== candidate);
   return h(
-    'div',
-    { class: 'result-actions' },
-    candidate?.sourcePageUrl && h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => a.openOriginal(candidate, 'result') }, 'Open original page ↗'),
-    h(
-      'div',
-      { class: 'result-row' },
-      h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, 'Try another look'),
-      h('button', { type: 'button', class: 'text-button', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save look'),
-    ),
-    others.length > 0 && h('p', { class: 'with small muted' }, `With ${others.map(name).join(', ')}`),
+    'section',
+    { class: 'look', 'aria-label': 'Your Look' },
+    h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look'), h('p', { class: 'muted small' }, 'See it with your wardrobe.')),
+    renderBlock(s, a, worn, s.render?.key !== s.lookKey),
+    worn.length === 0
+      ? h('p', { class: 'look-empty muted' }, 'Pick pieces below to see them together.')
+      : h(
+          'ul',
+          { class: 'look-pieces' },
+          ...worn.map((g) =>
+            h(
+              'li',
+              { class: g.location === 'fittingRoom' ? 'look-piece store' : 'look-piece' },
+              img(thumbSrc(g), 'look-piece-img', name(g)),
+              h('button', { type: 'button', class: 'look-piece-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
+            ),
+          ),
+        ),
+    worn.length > 0 && !rendered && !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', onclick: a.seeTogether }, 'See them together'),
+    rendered &&
+      h(
+        'div',
+        { class: 'result-actions' },
+        store?.sourcePageUrl && h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => a.openOriginal(store, 'result') }, 'Open original page ↗'),
+        h('div', { class: 'result-row' }, h('span', {}), h('button', { type: 'button', class: 'text-button', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save look')),
+      ),
   );
 }
 
-function candidateCard(s: ViewState, g: Garment, a: Actions): HTMLElement {
-  return h(
-    'div',
-    { class: 'candidate' },
-    img(imageUrl(g.imageId), 'candidate-img', name(g)),
-    h(
-      'div',
-      { class: 'candidate-body' },
-      h('span', { class: 'eyebrow' }, 'From the store'),
-      h('strong', { class: 'candidate-title', title: name(g) }, name(g)),
-      s.typeFor === g.id
-        ? typeEditor(g, a)
-        : h('span', { class: 'candidate-type small muted' }, CATEGORY_LABEL[g.category], ' · ', h('button', { type: 'button', class: 'text-button small', onclick: () => a.editType(g.id) }, 'Edit')),
-    ),
-  );
-}
-
-// What tends to go with a piece. The user never sees these rules.
+// Under "All", what goes with the store piece in the look comes first, most
+// recently used first. The order doesn't change while you pick (recency only
+// moves when you see a look), so tiles never jump.
 const GOES_WITH: Record<Category, Category[]> = {
   top: ['bottom', 'outerwear', 'shoes'],
   bottom: ['top', 'outerwear', 'shoes'],
@@ -249,102 +257,38 @@ const GOES_WITH: Record<Category, Category[]> = {
   dress: ['outerwear', 'shoes'],
   shoes: ['top', 'bottom', 'dress', 'outerwear'],
 };
-// The whole closet on the main page, filtered by kind (All · Top · Bottom …).
-// Under "All", kinds that go with the store piece come first, most recently
-// used first. The order doesn't change while you pick (recency only moves when
-// you see a look), so tiles never jump.
-export function closetOrder(closet: Garment[], candidate: Garment | undefined): Garment[] {
-  const kinds = candidate ? [...GOES_WITH[candidate.category], candidate.category] : LOOK_ORDER;
+
+export function pieceOrder(pieces: Garment[], store: Garment | undefined): Garment[] {
+  const kinds = store ? [...GOES_WITH[store.category], store.category] : LOOK_ORDER;
   const rank = (g: Garment) => (kinds.includes(g.category) ? kinds.indexOf(g.category) : kinds.length);
   const recent = (g: Garment) => g.lastUsedAt ?? g.createdAt;
-  return [...closet].sort((x, y) => rank(x) - rank(y) || recent(y) - recent(x));
+  return [...pieces].sort((x, y) => rank(x) - rank(y) || recent(y) - recent(x));
 }
 
-function closetPicker(s: ViewState, a: Actions, closet: Garment[], candidate: Garment | undefined): HTMLElement {
-  if (!closet.length) {
-    // Closet building happens here, when it's needed, one piece at a time.
-    return h(
-      'div',
-      { class: 'picker' },
-      s.phone
-        ? phoneCard(s.phone, a)
-        : h(
-            'div',
-            { class: 'nudge' },
-            h('p', {}, 'Want to try this with something you own?'),
-            h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.usePhone }, 'Add a piece from your closet'),
-            h('label', { class: 'text-button small', for: 'upload-input' }, 'or upload from this device'),
-          ),
-    );
-  }
-  const shown = closetOrder(closet, candidate).filter((g) => s.filter === 'all' || g.category === s.filter);
-  return h(
-    'div',
-    { class: 'picker' },
-    h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'From your closet')),
-    s.phone && phoneCard(s.phone, a),
-    filters(s, a, closet),
-    s.typeFor && closet.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-    h('div', { class: 'grid' }, ...shown.map((g) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) }))),
-  );
-}
-
+// The main page (D26, revised): Your Look on top, then every piece, store and
+// owned together, under All · Top · Bottom … A new capture lands in its kind.
 export function lookView(s: ViewState, a: Actions): HTMLElement {
   const worn = wornPieces(s);
-  const candidate = candidateOf(s);
-  const closet = s.garments.filter((g) => g.location === 'closet');
-  const running = s.render?.key === s.lookKey && s.render?.status === 'running';
-  const result = s.render?.key === s.lookKey && s.render?.status === 'done' && !s.editing;
-  const changed = !!s.render?.imageUrl && s.render.key !== s.lookKey;
-  const unchanged = s.render?.key === s.lookKey && s.render?.status === 'done'; // picking again, nothing changed yet
-  const otherStore = worn.filter((g) => g.location === 'fittingRoom' && g !== candidate);
-  const ready = worn.length >= 2 || (worn.length === 1 && !candidate);
-
-  const head = h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look'), h('p', { class: 'muted small' }, 'See it with your wardrobe.'));
-
-  if (!worn.length && !s.draft) {
-    const considering = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt).slice(0, 4);
-    return h(
-      'section',
-      { class: 'look' },
-      head,
-      h('div', { class: 'empty-look' }, h('p', { class: 'question' }, 'Found something you like?'), h('p', { class: 'muted' }, STORE_HINT)),
-      considering.length > 0 &&
-        h(
-          'div',
-          { class: 'picker' },
-          h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In your Fitting Room')),
-          h('div', { class: 'grid' }, ...considering.map((g) => tile(s, g, a, { onclick: () => a.consider(g), selected: false }))),
-        ),
-      !closet.length && closetEmpty(s, a),
-    );
-  }
-
+  const pieces = s.garments.filter((g) => g.decision !== 'pass');
+  const shown = pieceOrder(pieces, candidateOf(s)).filter((g) => s.filter === 'all' || g.category === s.filter);
+  const hasCloset = pieces.some((g) => g.location === 'closet');
   return h(
-    'section',
-    { class: 'look' },
-    head,
-    renderBlock(s, a, worn, !result),
-    result && resultActions(s, a, candidate, worn),
-    !result && !running && candidate && candidateCard(s, candidate, a),
-    !result &&
-      !running &&
-      otherStore.length > 0 &&
+    'div',
+    { class: 'main-page' },
+    lookSection(s, a, worn),
+    !pieces.length && !s.draft && h('div', { class: 'empty-look' }, h('p', { class: 'question' }, 'Found something you like?'), h('p', { class: 'muted' }, STORE_HINT)),
+    pieces.length > 0 &&
       h(
-        'ul',
-        { class: 'also' },
-        ...otherStore.map((g) =>
-          h('li', {}, img(thumbSrc(g), 'also-img'), h('span', { class: 'small' }, name(g)), h('button', { type: 'button', class: 'text-button small', 'aria-label': `Take off ${name(g)}`, onclick: () => a.takeOff(g) }, 'Take off')),
-        ),
+        'section',
+        { class: 'pieces', 'aria-label': 'Your pieces' },
+        s.phone && phoneCard(s.phone, a),
+        filters(s, a, pieces),
+        s.typeFor && pieces.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
+        shown.length
+          ? h('div', { class: 'grid' }, ...shown.map((g) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g), menu: true })))
+          : h('p', { class: 'muted small' }, 'Nothing here yet.'),
       ),
-    !result && !running && h('p', { class: 'question' }, candidate ? 'What would you wear this with?' : 'What goes together?'),
-    !result && !running && closetPicker(s, a, closet, candidate),
-    !result &&
-      !running &&
-      (unchanged
-        ? h('button', { type: 'button', class: 'btn btn-secondary btn-block cta', onclick: a.backToLook }, 'Back to this look')
-        : h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: !ready, onclick: a.seeTogether }, 'See them together')),
-    !result && !running && changed && h('p', { class: 'muted small center' }, 'The picture above is your last look.'),
+    !hasCloset && closetEmpty(s, a),
   );
 }
 
