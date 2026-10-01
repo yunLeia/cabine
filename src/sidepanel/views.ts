@@ -234,7 +234,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
             'ol',
             { class: 'first-run' },
             h('li', {}, 'Add a few clothes you own to My Closet, from your phone or this computer.'),
-            h('li', {}, 'On any store, right-click a product image and choose "Try in Cabine".'),
+            h('li', {}, 'On any store, right-click a product image and choose "Take it to Cabine".'),
             h('li', {}, 'Pick pieces and tap "See the outfit" to see them together.'),
           )
         : h('p', { class: 'muted' }, 'Pick pieces from your Fitting Room or My Closet to see them together.')),
@@ -361,7 +361,7 @@ export function drawersView(s: ViewState, a: Actions): HTMLElement {
   const empty = () =>
     inDrawer.length === 0 && !shownCategory
       ? s.drawer === 'fittingRoom'
-        ? 'Nothing here yet. On any store, right-click a product image and choose "Try in Cabine".'
+        ? 'Nothing here yet. On any store, right-click a product image and choose "Take it to Cabine".'
         : 'Your closet is empty. Upload photos of clothes you own.'
       : `No ${shownCategory ? lower(shownCategory) : 'items'} in your ${DRAWER_LABEL[s.drawer]}.`;
 

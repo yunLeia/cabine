@@ -26,11 +26,12 @@ chrome.action.onClicked.addListener((tab) => {
 // per install/update. Creating them at top level would run on every wake-up and
 // fail with a duplicate-id error.
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
+  // removeAll first: on an update the old item (and its old title) may still exist.
+  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({
     id: MENU_ID,
-    title: 'Try in Cabine',
+    title: 'Take it to Cabine',
     contexts: ['image'], // only shown when right-clicking an <img>
-  });
+  }));
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
