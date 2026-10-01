@@ -433,3 +433,12 @@ docs/
   - Clean-ups queue two at a time, and the hanger shows from the moment a piece is queued.
   - Writes to the garment list now run one at a time (`store.ts`). With a phone batch and several clean-ups finishing together, parallel read-modify-writes could drop a piece.
   - Watch: the per-person limit is 10 clean-ups a day (`USER_DAILY_CLEANUPS`), so a first phone session of 20 photos leaves 10 at "Couldn't clean up" until tomorrow.
+
+### D26 revision 3: mannequin + boxes
+
+- **The frame keeps the mannequin's proportions** (848 × 1264, at most 72vh tall), so the whole figure shows at any panel width. Pictures are contained, never cropped.
+- **Boxes to the right of the mannequin, head to toe:** Outer, Top, Bottom, Shoes. A dress takes the Top and Bottom boxes as one tall box. A filled box shows the piece (an oxblood edge for a store piece) with × to take it off. Tapping a box switches the chips to that kind. These boxes replace the thumbnail row under the picture.
+- **After the result:** "♡ Save this look" and "Try another". "Try another" goes back to the empty mannequin and keeps the chosen pieces in their boxes. "See them together" on an unchanged look shows the saved picture again, with no new request. "Open original page" is in each store piece's ⋯ menu.
+- When the look changes, the frame goes back to the empty mannequin instead of fading the old picture. Coming back to a combination you've already seen shows its saved picture.
+- **Not done:** a hat box. There's no hat category, and the render prompt and server validation only know top, bottom, dress, outerwear and shoes.
+- The clean-up limit stays at 10 a day per person (decided).

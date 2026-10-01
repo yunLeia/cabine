@@ -25,6 +25,7 @@ const state: ViewState = {
   filter: 'all',
   menuFor: null,
   typeFor: null,
+  cleared: false,
   notice: null,
   phone: null,
 };
@@ -84,6 +85,9 @@ const actions: Actions = {
     const key = state.lookKey;
     if (!garments.length || !key) return;
 
+    state.cleared = false;
+    // Seen this exact look already (e.g. "Try another", then no change): show it again.
+    if (state.render?.key === key && state.render.status === 'done') return render();
     setRender({ key, count: garments.length, status: 'running' });
     void updateGarments(garments.map((g) => g.id), { lastUsedAt: Date.now() });
     const fromStore = garments.filter((g) => g.location === 'fittingRoom');
@@ -114,6 +118,13 @@ const actions: Actions = {
       void trackPanel('outfit_render_failed', { code: err instanceof RenderError ? err.code : 'unexpected' });
       if (state.render?.key === key) setRender({ key, count: garments.length, status: 'error', error: message });
     }
+  },
+
+  tryAnother() {
+    // Back to the empty mannequin; the chosen pieces stay in their boxes.
+    state.cleared = true;
+    void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
+    render();
   },
 
   async toggleSave() {

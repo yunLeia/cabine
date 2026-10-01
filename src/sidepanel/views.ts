@@ -32,6 +32,7 @@ export interface ViewState {
   filter: Category | 'all';
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
+  cleared: boolean; // "Try another": back to the empty mannequin, pieces still chosen
   notice: string | null; // a short confirmation at the bottom
   phone: PhoneSession | null; // an open "Use your phone" QR session
 }
@@ -44,6 +45,7 @@ export interface Actions {
   takeOff(g: Garment): void;
   setView(v: View): void;
   seeTogether(): void;
+  tryAnother(): void;
   toggleSave(): void;
   openSavedLook(l: SavedLook): void;
   openOriginal(g: Garment, from: 'result' | 'menu'): void;
@@ -185,37 +187,35 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
 const revealed = new Set<string>();
 const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
 
-// The picture frame never goes away: an empty mannequin until there's a look,
-// then "Putting it together…", then the result. Same size in every state, so
-// nothing below it jumps.
 const MANNEQUIN = '/mannequin.jpg';
 
+// The mannequin frame: empty until you ask to see the look, then "Putting it
+// together…", then the result. It keeps the mannequin's proportions so the whole
+// figure is always visible, however wide the panel is.
 function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const r = s.render;
-  const current = !!r && r.key === s.lookKey;
+  const current = !!r && r.key === s.lookKey && !s.cleared;
   if (r?.status === 'running' && current) {
     return h(
       'div',
       { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
-      h('div', { class: 'running-pieces', 'aria-hidden': 'true' }, ...worn.map((g) => img(thumbSrc(g), 'running-thumb'))),
-      h('p', { class: 'running-title' }, 'Putting it together…'),
-      h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds'),
+      h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
+      h('div', { class: 'frame-overlay' }, h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')),
     );
   }
   if (r?.status === 'error' && current) {
     return h(
       'div',
       { class: 'render-frame error', role: 'alert' },
-      h('p', {}, r.error ?? 'Something went wrong.'),
-      h('button', { type: 'button', class: 'text-button', onclick: a.seeTogether }, 'Try again'),
+      h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
+      h('div', { class: 'frame-overlay' }, h('p', {}, r.error ?? 'Something went wrong.'), h('button', { type: 'button', class: 'text-button', onclick: a.seeTogether }, 'Try again')),
     );
   }
-  if (r?.status === 'done' && r.imageUrl && s.lookKey) {
-    // The last result stays, faded, while you change the look.
+  if (r?.status === 'done' && r.imageUrl && current) {
     markRevealed(r.imageUrl);
     return h(
       'div',
-      { class: `render-frame done${current ? '' : ' outdated'}` },
+      { class: 'render-frame done' },
       h('img', { class: revealed.has(r.imageUrl) ? 'render-img' : 'render-img reveal', src: r.imageUrl, alt: 'The pieces together on a mannequin' }),
     );
   }
@@ -223,61 +223,54 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
     'div',
     { class: 'render-frame idle' },
     h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-    h('p', { class: 'frame-hint small' }, worn.length ? 'Tap “See them together”' : 'Pick pieces below'),
+    worn.length === 0 && h('p', { class: 'frame-hint small' }, 'Pick pieces below'),
   );
 }
 
-// What you can do with a finished look depends on where its pieces came from.
-function resultActions(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
-  const saved = s.savedLooks.some((l) => l.key === s.lookKey);
-  const fromStores = worn.filter((g) => g.location === 'fittingRoom' && g.sourcePageUrl);
-  const save = (cls: string) => h('button', { type: 'button', class: cls, 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save look');
-  // All your own clothes: nothing to go back to; keeping the look is the action.
-  if (!fromStores.length) return h('div', { class: 'result-actions' }, save('btn btn-secondary btn-block'));
-  // One store piece: back to its page.
-  if (fromStores.length === 1) {
-    return h(
-      'div',
-      { class: 'result-actions' },
-      h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => a.openOriginal(fromStores[0], 'result') }, 'Open original page ↗'),
-      h('div', { class: 'result-row' }, h('span', {}), save('text-button')),
-    );
-  }
-  // Several store pieces: one link each.
+// The boxes beside the mannequin, head to toe. A dress takes the top and
+// bottom boxes together. Tapping a box shows that kind below.
+function slotBox(s: ViewState, a: Actions, kind: Category, label: string, tall = false): HTMLElement {
+  const g = s.outfit[kind] ? s.byId.get(s.outfit[kind]!) : undefined;
   return h(
     'div',
-    { class: 'result-actions' },
-    h('p', { class: 'label' }, 'Open original page'),
-    h('ul', { class: 'store-links' }, ...fromStores.map((g) => h('li', {}, h('button', { type: 'button', class: 'store-link', onclick: () => a.openOriginal(g, 'result') }, img(thumbSrc(g), 'store-link-img'), h('span', {}, name(g)), h('span', { class: 'muted' }, '↗'))))),
-    h('div', { class: 'result-row' }, h('span', {}), save('text-button')),
+    { class: `slot${g ? ' filled' : ''}${g?.location === 'fittingRoom' ? ' store' : ''}${tall ? ' tall' : ''}` },
+    h(
+      'button',
+      { type: 'button', class: 'slot-main', 'aria-label': g ? `${label}: ${name(g)}` : `Choose ${label.toLowerCase()}`, title: g ? name(g) : label, onclick: () => a.filter(kind) },
+      g ? img(thumbSrc(g), 'slot-img', name(g)) : h('span', { class: 'slot-label' }, label),
+    ),
+    g && h('button', { type: 'button', class: 'slot-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
   );
 }
 
-// The look itself, always at the top: the frame, the pieces in it, and what
-// you can do with it.
+function slots(s: ViewState, a: Actions): HTMLElement {
+  return h(
+    'div',
+    { class: 'slots' },
+    slotBox(s, a, 'outerwear', 'Outer'),
+    ...(s.outfit.dress ? [slotBox(s, a, 'dress', 'Dress', true)] : [slotBox(s, a, 'top', 'Top'), slotBox(s, a, 'bottom', 'Bottom')]),
+    slotBox(s, a, 'shoes', 'Shoes'),
+  );
+}
+
+// The look, always at the top: mannequin + boxes, then one row of actions.
 function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
-  const rendered = s.render?.key === s.lookKey && s.render?.status === 'done';
-  const running = s.render?.key === s.lookKey && s.render?.status === 'running';
+  const shown = s.render?.key === s.lookKey && !s.cleared;
+  const rendered = shown && s.render?.status === 'done';
+  const running = shown && s.render?.status === 'running';
+  const saved = s.savedLooks.some((l) => l.key === s.lookKey);
   return h(
     'section',
     { class: 'look', 'aria-label': 'Your Look' },
     h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look')),
-    lookFrame(s, a, worn),
-    worn.length > 0 &&
-      h(
-        'ul',
-        { class: 'look-pieces' },
-        ...worn.map((g) =>
-          h(
-            'li',
-            { class: g.location === 'fittingRoom' ? 'look-piece store' : 'look-piece' },
-            img(thumbSrc(g), 'look-piece-img', name(g)),
-            h('button', { type: 'button', class: 'look-piece-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
-          ),
-        ),
-      ),
+    h('div', { class: 'look-stage' }, lookFrame(s, a, worn), slots(s, a)),
     rendered
-      ? resultActions(s, a, worn)
+      ? h(
+          'div',
+          { class: 'result-row' },
+          h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save this look'),
+          h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, 'Try another'),
+        )
       : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together'),
   );
 }
