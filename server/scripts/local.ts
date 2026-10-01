@@ -14,7 +14,7 @@ import { createServer } from 'node:http';
 import { ConflictError, createHandler, type Deps, type Store } from '../api/[action].ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
-const files = new Map<string, { bytes: Uint8Array; etag: string }>();
+const files = new Map<string, { bytes: Uint8Array; etag: string; at: number }>();
 let n = 0;
 
 const store: Store = {
@@ -25,10 +25,13 @@ const store: Store = {
     const cur = files.get(path);
     if (ifMatch === null && cur) throw new ConflictError('exists');
     if (ifMatch && cur?.etag !== ifMatch) throw new ConflictError('etag changed');
-    files.set(path, { bytes, etag: `e${++n}` });
+    files.set(path, { bytes, etag: `e${++n}`, at: Date.now() });
   },
   async list(prefix) {
     return [...files.keys()].filter((k) => k.startsWith(prefix));
+  },
+  async listOlder(prefix, beforeMs) {
+    return [...files].filter(([k, f]) => k.startsWith(prefix) && f.at < beforeMs).map(([k]) => k);
   },
   async remove(paths) {
     for (const p of paths) files.delete(p);

@@ -7,7 +7,7 @@
 //   POST /api/inbox-session   the phone page checks its token (token only, no client key)
 //   POST /api/inbox-upload    the phone page uploads one photo (token only, no client key)
 //   POST /api/events          the extension's product-analytics events (D23)
-//   GET  /api/cleanup         daily cron: deletes expired sessions and unclaimed photos
+//   GET  /api/cleanup         daily cron: deletes expired sessions, unclaimed photos and old cached images
 //
 // The extension sends original garment images, categories and titles. This
 // function owns everything that costs money: which providers and settings, the
@@ -69,6 +69,7 @@ export interface Store {
   // ifMatch: an etag (update only if unchanged), null (create only if missing), or undefined (overwrite).
   write(path: string, bytes: Uint8Array, contentType: string, ifMatch?: string | null): Promise<void>;
   list(prefix: string): Promise<string[]>; // pathnames
+  listOlder(prefix: string, beforeMs: number): Promise<string[]>; // pathnames last written before this time
   remove(paths: string[]): Promise<void>;
 }
 
@@ -405,6 +406,22 @@ export async function cleanupSessions(deps: Deps): Promise<{ sessions: number; p
   return { sessions, photos };
 }
 
+// ---- Retention: cached images and bookkeeping don't live forever ------------------------------
+// Looks and clean photos are caches (a repeat after deletion costs one credit
+// again), so they're kept 30 days from when they were made. The privacy policy
+// promises this; change both together.
+export const RETENTION_DAYS = { looks: 30, clean: 30, usage: 8, locks: 1 } as const;
+
+export async function cleanupStorage(deps: Deps): Promise<Record<keyof typeof RETENTION_DAYS, number>> {
+  const removed = { looks: 0, clean: 0, usage: 0, locks: 0 };
+  for (const prefix of Object.keys(RETENTION_DAYS) as (keyof typeof RETENTION_DAYS)[]) {
+    const old = await deps.store.listOlder(`${prefix}/`, now(deps) - RETENTION_DAYS[prefix] * 24 * 60 * 60_000);
+    for (let i = 0; i < old.length; i += 500) await deps.store.remove(old.slice(i, i + 500));
+    removed[prefix] = old.length;
+  }
+  return removed;
+}
+
 // ---- Analytics: accept a batch of known events, drop anything malformed ------------------------
 
 export const EVENT_NAMES = new Set([
@@ -735,8 +752,18 @@ const blobStore: Store = {
     } while (cursor);
     return paths;
   },
+  async listOlder(prefix, beforeMs) {
+    const paths: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await list({ prefix, cursor, limit: 1000 });
+      paths.push(...page.blobs.filter((b) => b.uploadedAt.getTime() < beforeMs).map((b) => b.pathname));
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return paths;
+  },
   async remove(paths) {
-    await del(paths);
+    if (paths.length) await del(paths);
   },
   async read(path) {
     // Bypass the CDN cache: a cached copy of the usage counter has a stale etag,
@@ -825,7 +852,8 @@ export async function GET(request: Request): Promise<Response> {
   if (new URL(request.url).pathname.split('/').pop() !== 'cleanup') return Response.json({ error: 'not found' }, { status: 404 });
   const secret = process.env.CRON_SECRET;
   if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) return Response.json({ error: 'unauthorized' }, { status: 401 });
-  const result = await cleanupSessions(productionDeps());
+  const deps = productionDeps();
+  const result = { ...(await cleanupSessions(deps)), removed: await cleanupStorage(deps) };
   console.log(JSON.stringify({ event: 'cleanup', ...result }));
   return Response.json(result);
 }

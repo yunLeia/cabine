@@ -354,3 +354,24 @@ docs/
   - Events are client-reported (a modified extension could send junk), but the list of names and the size limits bound it.
   - `vercel integration add` rewrites `.env.local`, so the extension's build key now lives in `.env.production.local`.
 - **Revisit when:** there are more than a few hundred installs (add retention and deletion), or funnel ordering matters (window functions over `client_at`).
+
+## D24. Ship with an empty closet
+
+- **Context:** every install copied 9 retailer dress-form photos into My Closet as a starter closet. They can't ship publicly, and a tester should build their own closet anyway.
+- **Options:** empty closet with a first-run guide · a labelled demo closet the user can clear
+- **Decision: empty.** A new install sees three steps in the look: add clothes you own (phone or this computer), right-click a product image on a store, then See the outfit. The photos moved to `scripts/seed-cleanup/closet/` (git-ignored, not bundled).
+- **Tradeoff:** the first render needs the user's own clothes first. The phone QR makes that quick.
+- **Revisit when:** first-run drop-off shows people leave before adding a piece (then add a few licensed demo pieces).
+
+## D25. Retention for server-side images
+
+- **Context:** rendered looks and clean photos were cached in Blob forever. So were daily usage counters and stale locks.
+- **Decision:** the daily cleanup job (`GET /api/cleanup`) also deletes anything older than:
+  - `looks/` and `clean/`: **30 days** after they were made;
+  - `usage/`: 8 days;
+  - `locks/`: 1 day.
+  
+  The ages are in `RETENTION_DAYS` and are stated in the privacy policy; change both together.
+- **Why:** storage stays flat, and the privacy policy can make a concrete promise.
+- **Tradeoff:** repeating a look older than 30 days costs one credit again. The panel keeps its own copy in IndexedDB, so people rarely notice.
+- **Tested:** a server test checks that nothing goes before 30 days, both caches go after, today's look and counters stay, and an expired look is made again.

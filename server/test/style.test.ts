@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import {
   ConflictError,
   cleanupSessions,
+  cleanupStorage,
   composeGarments,
   createHandler,
   extractPrompt,
@@ -21,8 +22,8 @@ import {
 } from '../api/[action].ts';
 
 // In-memory store with real etag semantics, so the usage counter's retry logic is exercised.
-function memoryStore(): Store & { files: Map<string, { bytes: Uint8Array; etag: string }> } {
-  const files = new Map<string, { bytes: Uint8Array; etag: string }>();
+function memoryStore(clock: () => number = Date.now): Store & { files: Map<string, { bytes: Uint8Array; etag: string; at: number }> } {
+  const files = new Map<string, { bytes: Uint8Array; etag: string; at: number }>();
   let n = 0;
   return {
     files,
@@ -35,10 +36,13 @@ function memoryStore(): Store & { files: Map<string, { bytes: Uint8Array; etag: 
       const cur = files.get(path);
       if (ifMatch === null && cur) throw new ConflictError('exists');
       if (ifMatch && cur?.etag !== ifMatch) throw new ConflictError('etag changed');
-      files.set(path, { bytes, etag: `e${++n}` });
+      files.set(path, { bytes, etag: `e${++n}`, at: clock() });
     },
     async list(prefix) {
       return [...files.keys()].filter((k) => k.startsWith(prefix));
+    },
+    async listOlder(prefix, beforeMs) {
+      return [...files].filter(([k, f]) => k.startsWith(prefix) && f.at < beforeMs).map(([k]) => k);
     },
     async remove(paths) {
       for (const p of paths) files.delete(p);
@@ -93,7 +97,7 @@ async function call(deps: Deps, body: unknown, key: string | null = 'secret', ro
 }
 
 function setup(limit = 100) {
-  const store = memoryStore();
+  const store = memoryStore(() => (deps.now ?? Date.now)()); // files are stamped with the test's clock
   const provider = fakeProvider();
   const extractor = fakeExtractor();
   const recorded: EventRow[] = [];
@@ -416,6 +420,28 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(left.filter((k) => k.startsWith('sessions/')).length, 1, 'the fresh session stays');
     assert.equal(left.filter((k) => k.startsWith('inbox/')).length, 1, 'with its photo');
     assert.equal((await call(deps, { token: old }, null, 'inbox-session')).status, 410, 'the old link is gone');
+  }],
+
+  ['retention: cached looks and clean photos go after 30 days; current usage stays', async () => {
+    const { deps, store, provider, extractor } = setup();
+    let t = Date.now();
+    deps.now = () => t;
+    await call(deps, look);
+    await call(deps, item('top', 'model-shot'), 'secret', 'extract');
+    const count = (prefix: string) => [...store.files.keys()].filter((k) => k.startsWith(prefix)).length;
+    assert.equal(count('looks/'), 1);
+    assert.equal(count('clean/'), 1);
+    assert.equal(count('locks/'), 0, 'locks are released after the work');
+    t += 29 * 24 * 60 * 60_000;
+    assert.deepEqual(await cleanupStorage(deps), { looks: 0, clean: 0, usage: 2, locks: 0 }, 'old usage counters go after 8 days');
+    t += 2 * 24 * 60 * 60_000; // 31 days
+    await call(deps, { items: [item('top', 'fresh')] }); // a new look today, with today's counters
+    assert.deepEqual(await cleanupStorage(deps), { looks: 1, clean: 1, usage: 0, locks: 0 });
+    assert.equal(count('looks/'), 1, "today's look stays");
+    assert.ok(count('usage/') > 0, "today's counters stay");
+    await call(deps, look); // the expired look is made again
+    assert.equal(provider.calls.length, 3);
+    assert.equal(extractor.calls.length, 1);
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
