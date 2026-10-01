@@ -384,15 +384,16 @@ docs/
   - **Your Look** (the main workspace):
     - the store piece, marked "From the store" with an oxblood edge;
     - the question "What would you wear this with?";
-    - up to 8 relevant closet pieces. These are the kinds that go with the piece, the most recently used first, taken in turns. The order stays stable while picking.
-    - "View all" opens the whole closet, with filters.
+    - the whole closet, with the earlier "All 9 · Top 5 · Bottom 3…" chips. Under "All", the kinds that go with the piece come first, most recently used first. The order stays stable while picking.
+    
+    *Changed after review:* the first version showed 8 suggestions plus "View all". Kept from before: the white background and the category chips. Fitting Room and My Closet aren't tabs on the main page; they're only header links.
     
     Tapping a piece selects it; another piece of the same kind replaces it silently. The button is "See them together".
   - **Result:** the picture, then "Open original page ↗" (primary), "Try another look" and "♡ Save look". Cabine doesn't ask whether you bought it. "I got this — add to My Closet" is in the piece's ⋯ menu.
   - **Navigation:** the header has the brand plus "Fitting Room" and "My Closet". The Fitting Room lists the pieces you're considering and your saved looks. My Closet is a selection source, not a dashboard.
   - **Progressive closet:** an empty closet asks for "a few pieces you actually wear" (phone first). With a store piece and no closet, the look offers "Add a piece from your closet".
   - **Visual system:**
-    - warm paper `#F7F3ED`, ink `#171717`, oxblood `#7B3040` only for "this piece" and selection;
+    - white background (kept from before), ink `#171717`, oxblood `#7B3040` only for "this piece" and selection;
     - Inter Tight, bundled in the extension (`@fontsource-variable/inter-tight`, no external request);
     - 6px radii, black primary buttons, no pills;
     - a soft gradient only while the picture is being made, and a blur-to-clear reveal.

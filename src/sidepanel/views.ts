@@ -30,7 +30,6 @@ export interface ViewState {
   render: RenderState | null; // the latest render; dimmed when it's for an older look
   view: View;
   editing: boolean; // "Try another look": pick again under the last result
-  showAll: boolean; // the whole closet, with filters, instead of suggestions
   filter: Category | 'all';
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
@@ -57,7 +56,6 @@ export interface Actions {
   addToCloset(g: Garment): void;
   cleanUp(g: Garment): void;
   useOriginal(g: Garment): void;
-  setShowAll(on: boolean): void;
   filter(f: Category | 'all'): void;
   usePhone(): void;
   closePhone(): void;
@@ -65,7 +63,6 @@ export interface Actions {
 }
 
 const name = (g: Garment) => (g.title ? productName(g.title) : CATEGORY_LABEL[g.category]);
-const PLURAL: Record<Category, string> = { top: 'Tops', bottom: 'Bottoms', outerwear: 'Outerwear', dress: 'Dresses', shoes: 'Shoes' };
 const STORE_HINT = 'On any store, right-click a product image and choose "Take it to Cabine".';
 
 // My Closet shows the cleaned-up photo when there is one; store pieces and
@@ -252,21 +249,15 @@ const GOES_WITH: Record<Category, Category[]> = {
   dress: ['outerwear', 'shoes'],
   shoes: ['top', 'bottom', 'dress', 'outerwear'],
 };
-const SUGGESTIONS = 8;
-
-// A few relevant closet pieces: the most recently used of each kind that goes
-// with the store piece, taken in turns so every kind shows up. The order doesn't
-// change while you pick (recency only moves when you see a look); anything you
-// picked from "View all" is added at the end.
-export function suggestions(s: ViewState, closet: Garment[], candidate: Garment | undefined): Garment[] {
-  const kinds = candidate ? GOES_WITH[candidate.category] : LOOK_ORDER;
-  const recent = (x: Garment, y: Garment) => (y.lastUsedAt ?? y.createdAt) - (x.lastUsedAt ?? x.createdAt);
-  const queues = kinds.map((k) => closet.filter((g) => g.category === k).sort(recent));
-  const picked: Garment[] = [];
-  while (picked.length < SUGGESTIONS && queues.some((q) => q.length)) {
-    for (const q of queues) if (q.length && picked.length < SUGGESTIONS) picked.push(q.shift()!);
-  }
-  return [...picked, ...closet.filter((g) => inLook(s, g) && !picked.includes(g))];
+// The whole closet on the main page, filtered by kind (All · Top · Bottom …).
+// Under "All", kinds that go with the store piece come first, most recently
+// used first. The order doesn't change while you pick (recency only moves when
+// you see a look), so tiles never jump.
+export function closetOrder(closet: Garment[], candidate: Garment | undefined): Garment[] {
+  const kinds = candidate ? [...GOES_WITH[candidate.category], candidate.category] : LOOK_ORDER;
+  const rank = (g: Garment) => (kinds.includes(g.category) ? kinds.indexOf(g.category) : kinds.length);
+  const recent = (g: Garment) => g.lastUsedAt ?? g.createdAt;
+  return [...closet].sort((x, y) => rank(x) - rank(y) || recent(y) - recent(x));
 }
 
 function closetPicker(s: ViewState, a: Actions, closet: Garment[], candidate: Garment | undefined): HTMLElement {
@@ -286,15 +277,13 @@ function closetPicker(s: ViewState, a: Actions, closet: Garment[], candidate: Ga
           ),
     );
   }
-  const shown = s.showAll
-    ? closet.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt)
-    : suggestions(s, closet, candidate);
+  const shown = closetOrder(closet, candidate).filter((g) => s.filter === 'all' || g.category === s.filter);
   return h(
     'div',
     { class: 'picker' },
-    h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'From your closet'), h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
+    h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'From your closet')),
     s.phone && phoneCard(s.phone, a),
-    s.showAll && filters(s, a, closet),
+    filters(s, a, closet),
     s.typeFor && closet.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
     h('div', { class: 'grid' }, ...shown.map((g) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) }))),
   );
@@ -389,13 +378,16 @@ export function fittingRoomView(s: ViewState, a: Actions): HTMLElement {
 
 // ---- My Closet ---------------------------------------------------------------------
 
+// All 9 · Top 5 · Bottom 3 … (only kinds you have).
 function filters(s: ViewState, a: Actions, items: Garment[]): HTMLElement {
-  const kinds = CATEGORIES.filter((c) => items.some((g) => g.category === c));
+  const count = (c: Category) => items.filter((g) => g.category === c).length;
   return h(
     'div',
-    { class: 'filters', role: 'tablist' },
-    h('button', { type: 'button', class: 'filter', role: 'tab', 'aria-selected': s.filter === 'all', onclick: () => a.filter('all') }, 'All'),
-    ...kinds.map((c) => h('button', { type: 'button', class: 'filter', role: 'tab', 'aria-selected': s.filter === c, onclick: () => a.filter(c) }, PLURAL[c])),
+    { class: 'chips' },
+    h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === 'all', onclick: () => a.filter('all') }, `All ${items.length}`),
+    ...CATEGORIES.filter((c) => count(c) > 0).map((c) =>
+      h('button', { type: 'button', class: 'chip', 'aria-pressed': s.filter === c, onclick: () => a.filter(c) }, `${CATEGORY_LABEL[c]} ${count(c)}`),
+    ),
   );
 }
 

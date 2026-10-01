@@ -23,7 +23,6 @@ const state: ViewState = {
   render: null,
   view: 'look',
   editing: false,
-  showAll: false,
   filter: 'all',
   menuFor: null,
   typeFor: null,
@@ -85,7 +84,6 @@ const actions: Actions = {
     if (!garments.length || !key) return;
 
     state.editing = false;
-    state.showAll = false;
     setRender({ key, count: garments.length, status: 'running' });
     void updateGarments(garments.map((g) => g.id), { lastUsedAt: Date.now() });
     const fromStore = garments.filter((g) => g.location === 'fittingRoom');
@@ -198,12 +196,6 @@ const actions: Actions = {
     const old = g.cleanImageId;
     await updateGarment(g.id, { cleanImageId: undefined, cleanStatus: undefined });
     if (old) await deleteImage(old);
-  },
-
-  setShowAll(on) {
-    state.showAll = on;
-    state.filter = 'all';
-    render();
   },
 
   filter(f) {
@@ -405,7 +397,6 @@ async function refresh(): Promise<void> {
   if (candidate && candidate !== lastCandidate) {
     state.view = 'look';
     state.editing = false;
-    state.showAll = false;
     state.typeFor = null;
   }
   lastCandidate = candidate;
