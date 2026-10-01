@@ -10,9 +10,10 @@
          give each a category, upload into this QR session's inbox. No login:
          the token in the URL is the only credential, and it can only add photos. */
       :root {
-        --bg: #fff; --surface: #f5f2ec; --ink: #1c1b19; --muted: #6f6b64; --line: #e6e2db;
-        --accent: #2f5d50; --accent-soft: #e4eee9; --danger: #a33a2b;
-        font: 16px/1.45 system-ui, -apple-system, sans-serif; color: var(--ink);
+        /* Same palette as the extension (D26). */
+        --bg: #f7f3ed; --surface: #fcfaf7; --ink: #171717; --muted: #69635d; --line: #ddd7cf;
+        --accent: #7b3040; --danger: #a33a2b;
+        font: 16px/1.45 'Inter Tight', system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif; color: var(--ink);
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
@@ -23,21 +24,21 @@
       .brand { font-weight: 700; letter-spacing: 0.02em; color: var(--muted); font-size: 14px; }
       .actions { display: grid; gap: 10px; margin: 20px 0; }
       .btn {
-        display: block; width: 100%; padding: 14px; border-radius: 12px; font: inherit; font-weight: 600; text-align: center;
+        display: block; width: 100%; padding: 14px; border-radius: 6px; font: inherit; font-weight: 600; text-align: center;
         border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer;
       }
-      .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .btn.primary { background: var(--ink); border-color: var(--ink); color: #fbf8f2; }
       .btn:disabled { opacity: 0.5; cursor: default; }
       .items { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; }
-      .item { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
-      .item img { width: 84px; height: 104px; object-fit: cover; border-radius: 8px; background: var(--surface); flex: none; }
+      .item { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+      .item img { width: 84px; height: 104px; object-fit: cover; border-radius: 4px; background: var(--surface); flex: none; }
       .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
       .chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .chip {
         font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
         border: 1px solid var(--line); background: var(--bg); color: var(--ink);
       }
-      .chip[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
+      .chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
       .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .link { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; font-size: 14px; padding: 0; cursor: pointer; }
       .status { font-size: 14px; color: var(--muted); }
@@ -48,7 +49,7 @@
         background: rgba(255, 255, 255, 0.96); border-top: 1px solid var(--line);
       }
       .bar p { text-align: center; margin: 0 0 8px; font-size: 14px; }
-      .notice { padding: 14px; border-radius: 12px; background: var(--surface); }
+      .notice { padding: 14px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -140,8 +141,8 @@
       };
       const pickButtons = () =>
         el('div', { class: 'actions' },
-          el('button', { class: 'btn primary', onclick: () => document.getElementById('take').click() }, 'Take photos'),
-          el('button', { class: 'btn', onclick: () => document.getElementById('choose').click() }, 'Choose photos'),
+          el('button', { class: 'btn primary', onclick: () => document.getElementById('take').click() }, 'Take a photo'),
+          el('button', { class: 'btn', onclick: () => document.getElementById('choose').click() }, 'Choose from photos'),
         );
 
       function render() {
@@ -158,22 +159,21 @@
           ];
         else if (state.screen === 'start')
           view = [
-            el('h1', {}, 'Add clothes to your Cabine closet'),
-            el('p', {}, 'Take or choose one photo per item.'),
-            el('p', { class: 'muted' }, 'Lay it flat or hang it up, and make sure the whole garment is visible.'),
+            el('h1', {}, 'Add something from your closet'),
+            el('p', {}, 'One piece per photo works best.'),
+            el('p', { class: 'muted' }, 'Lay it flat or hang it up, with the whole piece in view.'),
             pickButtons(),
             el('p', { class: 'muted small' }, `You can add up to ${state.remaining} photos with this link.`),
           ];
         else if (state.screen === 'done')
           view = [
             el('h1', {}, `Added ${state.added} ${state.added === 1 ? 'piece' : 'pieces'}`),
-            el('p', {}, 'They’ll appear in My Closet on your computer in a few seconds.'),
+            el('p', {}, 'They’ll appear in Cabine on your computer in a few seconds.'),
             state.remaining > 0 ? pickButtons() : el('p', { class: 'notice' }, 'This link is full. Make a new QR code in Cabine to add more.'),
           ];
         else
           view = [
-            el('h1', {}, 'Review items'),
-            el('p', { class: 'muted' }, 'Choose what each piece is.'),
+            el('h1', {}, 'What is each piece?'),
             el('ul', { class: 'items' },
               ...state.items.map((item) =>
                 el('li', { class: 'item' },

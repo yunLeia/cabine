@@ -25,20 +25,26 @@ with steps as (
          bool_or(name = 'closet_item_selected')     as added_closet_piece,
          bool_or(name = 'outfit_render_requested')  as requested_outfit,
          bool_or(name = 'outfit_render_completed')  as viewed_render,
-         bool_or(name like 'decision_%')            as made_decision
+         bool_or(name in ('original_page_opened', 'look_saved', 'try_another_look') or name like 'decision_%') as acted
   from events group by user_hash
 )
 select count(*) filter (where captured)                                                  as "1 captured",
        count(*) filter (where captured and added_closet_piece)                           as "2 added closet piece",
        count(*) filter (where captured and added_closet_piece and requested_outfit)      as "3 requested outfit",
        count(*) filter (where captured and added_closet_piece and requested_outfit and viewed_render) as "4 viewed render",
-       count(*) filter (where captured and added_closet_piece and requested_outfit and viewed_render and made_decision) as "5 made decision"
+       count(*) filter (where captured and added_closet_piece and requested_outfit and viewed_render and acted) as "5 acted on the look"
 from steps;
 
--- name: Decisions
-select replace(name, 'decision_', '') as decision, count(*) as n,
-       round(100.0 * count(*) / sum(count(*)) over (), 1) as pct
-from events where name like 'decision_%' group by name order by n desc;
+-- name: After seeing a look (D26)
+select name as action, count(*) as n
+from events where name in ('original_page_opened', 'look_saved', 'try_another_look') or name like 'decision_%'
+group by name order by n desc;
+
+-- name: Category guesses (how often the guessed type was corrected)
+select count(*) filter (where name = 'store_item_category_selected' and (props->>'inferred')::boolean) as guessed,
+       count(*) filter (where name = 'store_item_category_selected' and not coalesce((props->>'inferred')::boolean, false)) as asked,
+       count(*) filter (where name = 'category_edited' and props->>'location' = 'fittingRoom') as corrected
+from events;
 
 -- name: Render speed and caching
 select count(*) as renders,

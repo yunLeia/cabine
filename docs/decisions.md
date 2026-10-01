@@ -375,3 +375,35 @@ docs/
 - **Why:** storage stays flat, and the privacy policy can make a concrete promise.
 - **Tradeoff:** repeating a look older than 30 days costs one credit again. The panel keeps its own copy in IndexedDB, so people rarely notice.
 - **Tested:** a server test checks that nothing goes before 30 days, both caches go after, today's look and counters stay, and an expired look is made again.
+
+## D26. UX system: "What would I wear this with?"
+
+- **Context:** the panel had grown into a wardrobe tool. It had slots ("+ Top", "Use a dress instead"), a category question on every capture, two equal drawers, and Buy / Save / Pass. The product question is narrower: *I found this. What do I have that works with it? Let me see them together.*
+- **Decision:** rebuild the panel around that one loop. The user sees three things: this piece, my clothes, together. Categories, slots and the dress rule stay internal.
+  - **Capture:** the category is guessed from the page title (`shared/infer.ts`: English and Korean garment words; the last one in the product-name part wins, so "Shirt Dress" is a dress). The guess shows as "Top · Edit". The panel asks "What is it?" only when nothing matches. A capture starts a fresh look around the piece.
+  - **Your Look** (the main workspace):
+    - the store piece, marked "From the store" with an oxblood edge;
+    - the question "What would you wear this with?";
+    - up to 8 relevant closet pieces. These are the kinds that go with the piece, the most recently used first, taken in turns. The order stays stable while picking.
+    - "View all" opens the whole closet, with filters.
+    
+    Tapping a piece selects it; another piece of the same kind replaces it silently. The button is "See them together".
+  - **Result:** the picture, then "Open original page ↗" (primary), "Try another look" and "♡ Save look". Cabine doesn't ask whether you bought it. "I got this — add to My Closet" is in the piece's ⋯ menu.
+  - **Navigation:** the header has the brand plus "Fitting Room" and "My Closet". The Fitting Room lists the pieces you're considering and your saved looks. My Closet is a selection source, not a dashboard.
+  - **Progressive closet:** an empty closet asks for "a few pieces you actually wear" (phone first). With a store piece and no closet, the look offers "Add a piece from your closet".
+  - **Visual system:**
+    - warm paper `#F7F3ED`, ink `#171717`, oxblood `#7B3040` only for "this piece" and selection;
+    - Inter Tight, bundled in the extension (`@fontsource-variable/inter-tight`, no external request);
+    - 6px radii, black primary buttons, no pills;
+    - a soft gradient only while the picture is being made, and a blur-to-clear reveal.
+  - **Copy:** natural and short. "Putting it together… / About 15 seconds". The panel never says outfit generation, AI or recommendation.
+- **Supersedes:** D18 (layout), D20 (Buy / Save / Pass; old `decision` values are kept and `pass` pieces stay hidden), and the category step of D13.
+- **Analytics:**
+  - New events: `original_page_opened`, `look_saved`, `try_another_look`, `category_edited`.
+  - `store_item_category_selected` carries `inferred`.
+  - Funnel step 5 is now "acted on the look".
+  - The report adds "Category guesses", which shows how often a guess was corrected.
+- **Tradeoffs:**
+  - A wrong guess costs a render if it isn't noticed. "Top · Edit" sits next to the piece to make that unlikely, and the report measures it.
+  - Titles that use " – " for colour lose it in the display name ("Camisole – Navy" shows as "Camisole").
+- **Revisit when:** the correction rate is high (then classify the image), or people want to compare several store pieces at once.

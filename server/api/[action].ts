@@ -442,6 +442,10 @@ export const EVENT_NAMES = new Set([
   'photo_cleanup_requested',
   'photo_cleanup_completed',
   'photo_cleanup_failed',
+  'original_page_opened',
+  'look_saved',
+  'try_another_look',
+  'category_edited',
 ]);
 const MAX_EVENTS = 50;
 // Normal use is a few dozen events a session. A runaway client (a bug that

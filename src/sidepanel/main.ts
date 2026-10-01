@@ -1,29 +1,33 @@
+import '@fontsource-variable/inter-tight';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
+import { inferCategory } from '../shared/infer';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
-import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
-import type { Category, Garment } from '../shared/types';
+import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
+import type { Category, Draft, Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, needsCleanup, styleOutfit } from './render';
-import { draftView, drawersView, lookView, type Actions, type RenderState, type ViewState } from './views';
+import { candidateOf, closetView, draftView, fittingRoomView, headerView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
-// Stored state (garments, outfit, draft) mirrors chrome.storage.local and only
-// changes through storage writes + onChanged. The rest is UI state.
+// Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
+// and only changes through storage writes + onChanged. The rest is UI state.
 const state: ViewState = {
   garments: [],
   byId: new Map(),
   outfit: {},
   draft: null,
+  savedLooks: [],
   lookKey: null,
   render: null,
-  drawer: 'closet',
+  view: 'look',
+  editing: false,
+  showAll: false,
   filter: 'all',
-  choosing: null,
   menuFor: null,
-  confirmBuy: null,
-  justAdded: null,
+  typeFor: null,
+  notice: null,
   phone: null,
 };
 
@@ -33,27 +37,7 @@ const actions: Actions = {
   async saveDraft(category: Category) {
     const d = state.draft;
     if (!d?.imageId) return;
-    const garment: Garment = {
-      id: d.id,
-      // Store captures wait in the Fitting Room; your own uploads are yours already.
-      location: d.sourceType === 'shopping' ? 'fittingRoom' : 'closet',
-      sourceType: d.sourceType,
-      category,
-      title: d.title,
-      sourcePageUrl: d.sourcePageUrl,
-      sourceImageUrl: d.sourceImageUrl,
-      imageId: d.imageId,
-      imageVersion: 1,
-      createdAt: Date.now(),
-    };
-    await addGarments([garment]);
-    if (garment.location === 'fittingRoom') void trackPanel('store_item_category_selected', { itemId: garment.id, category });
-    else void trackPanel('closet_item_uploaded', { itemId: garment.id, category, source: 'device' });
-    // A store capture is the piece being considered, so it goes straight into the look.
-    if (garment.location === 'fittingRoom') await setOutfit(toggleInOutfit(state.outfit, garment));
-    state.drawer = garment.location;
-    state.filter = 'all';
-    await setDraft(null);
+    await saveFromDraft(d, category, false);
   },
 
   async discardDraft() {
@@ -65,71 +49,52 @@ const actions: Actions = {
   pick(g: Garment) {
     state.menuFor = null;
     if (state.outfit[g.category] !== g.id) {
-      void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', {
-        itemId: g.id,
-        category: g.category,
-        viaSlot: !!state.choosing,
-      });
+      void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
     }
-    if (state.choosing) {
-      // Picking for a slot: wear it (even if it already was) and go back to the look.
-      if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
-      state.choosing = null;
-      state.filter = 'all';
-      render();
-      $('look').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-    void setOutfit(toggleInOutfit(state.outfit, g)); // browsing: tap puts it on or takes it off
+    const on = state.outfit[g.category] !== g.id;
+    void setOutfit(toggleInOutfit(state.outfit, g)); // a new piece of the same kind replaces the old one
+    // Away from Your Look, say what the tap did (it changes a look you can't see).
+    if (state.view !== 'look') notify(on ? 'Added to your look' : 'Taken off your look');
   },
 
-  takeOff(category: Category) {
-    void setOutfit(removeFromOutfit(state.outfit, category));
-  },
-
-  choose(slot: Category) {
-    // Pieces to wear with a candidate usually come from what you own, so start
-    // in My Closet (the Fitting Room tab is still one tap away).
-    state.choosing = slot;
-    state.drawer = 'closet';
-    state.filter = slot;
+  consider(g: Garment) {
+    // A store piece from the Fitting Room: start a fresh look around it.
     state.menuFor = null;
+    void trackPanel('fitting_room_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
+    state.view = 'look';
+    void setOutfit({ [g.category]: g.id });
     render();
-    $('drawers').scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
-  cancelChoose() {
-    state.choosing = null;
+  takeOff(g: Garment) {
+    void setOutfit(removeFromOutfit(state.outfit, g.category));
+  },
+
+  setView(v) {
+    state.view = v;
+    state.menuFor = null;
+    state.typeFor = null;
     state.filter = 'all';
     render();
+    window.scrollTo({ top: 0 });
   },
 
-  filter(filter) {
-    state.filter = filter;
-    render();
-  },
-
-  openDrawer(drawer) {
-    state.drawer = drawer;
-    // Keep a slot filter while choosing; otherwise start the other drawer unfiltered.
-    if (!state.choosing) state.filter = 'all';
-    state.menuFor = null;
-    render();
-  },
-
-  async seeOutfit() {
+  async seeTogether() {
     const garments = chainOrder(state.outfit, state.byId);
     const key = state.lookKey;
     if (!garments.length || !key) return;
 
+    state.editing = false;
+    state.showAll = false;
     setRender({ key, count: garments.length, status: 'running' });
-    const candidates = garments.filter((g) => g.location === 'fittingRoom');
+    void updateGarments(garments.map((g) => g.id), { lastUsedAt: Date.now() });
+    const fromStore = garments.filter((g) => g.location === 'fittingRoom');
     void trackPanel('outfit_render_requested', {
       pieces: garments.length,
-      fromFittingRoom: candidates.length,
-      fromCloset: garments.length - candidates.length,
+      fromFittingRoom: fromStore.length,
+      fromCloset: garments.length - fromStore.length,
       categories: garments.map((g) => g.category),
-      candidateIds: candidates.map((g) => g.id),
+      candidateIds: fromStore.map((g) => g.id),
     });
     const started = Date.now();
     let cached = false;
@@ -153,34 +118,101 @@ const actions: Actions = {
     }
   },
 
+  tryAnother() {
+    // Keep the picture; open the closet again under it.
+    state.editing = true;
+    void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
+    render();
+  },
+
+  backToLook() {
+    state.editing = false;
+    render();
+  },
+
+  async toggleSave() {
+    const key = state.lookKey;
+    if (!key) return;
+    const saved = state.savedLooks.some((l) => l.key === key);
+    if (saved) {
+      await setSavedLooks(state.savedLooks.filter((l) => l.key !== key));
+    } else {
+      await setSavedLooks([...state.savedLooks, { key, outfit: { ...state.outfit }, createdAt: Date.now() }]);
+      void trackPanel('look_saved', { pieces: chainOrder(state.outfit, state.byId).length, candidateIds: chainOrder(state.outfit, state.byId).filter((g) => g.location === 'fittingRoom').map((g) => g.id) });
+    }
+  },
+
+  openSavedLook(l) {
+    state.view = 'look';
+    state.editing = false;
+    void setOutfit(pruneOutfit(l.outfit, state.byId));
+    render();
+  },
+
+  openOriginal(g: Garment, from) {
+    state.menuFor = null;
+    render();
+    if (!g.sourcePageUrl || !/^https?:\/\//.test(g.sourcePageUrl)) return;
+    void trackPanel('original_page_opened', { itemId: g.id, from });
+    void chrome.tabs.create({ url: g.sourcePageUrl });
+  },
+
   toggleMenu(id) {
     state.menuFor = id;
     render();
   },
 
-  async addToCloset(g: Garment) {
+  editType(id) {
     state.menuFor = null;
-    await moveToCloset(g, {}, 'menu');
+    state.typeFor = id;
+    render();
   },
 
-  async decide(g: Garment, decision: 'buy' | 'save' | 'pass') {
-    state.confirmBuy = null;
-    const decided = { decision, decidedAt: Date.now() };
-    void trackPanel(`decision_${decision}`, { itemId: g.id, category: g.category });
-    if (decision === 'buy') {
-      await moveToCloset(g, decided, 'buy'); // bought: it's yours now
-    } else if (decision === 'save') {
-      await updateGarment(g.id, decided); // stays in the Fitting Room, marked Saved
-    } else {
-      // Pass: out of the look and the drawers, but the record stays for counting.
-      await updateGarment(g.id, decided);
-      await setOutfit(removeFromOutfit(state.outfit, g.category));
-    }
+  async changeType(g: Garment, c: Category) {
+    state.typeFor = null;
+    if (c === g.category) return render();
+    void trackPanel('category_edited', { itemId: g.id, from: g.category, to: c, location: g.location });
+    const wasOn = state.outfit[g.category] === g.id;
+    await updateGarment(g.id, { category: c });
+    // Still in the look, now in its right place.
+    if (wasOn) await setOutfit(toggleInOutfit(removeFromOutfit(state.outfit, g.category), { ...g, category: c }));
+  },
+
+  async addToCloset(g: Garment) {
+    state.menuFor = null;
+    await updateGarment(g.id, { location: 'closet' });
+    notify('Added to My Closet');
+    const needed = await needsCleanup(g);
+    void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via: 'menu', needsCleanup: needed });
+    if (needed) void cleanUp(g, 'auto');
+  },
+
+  cleanUp(g: Garment) {
+    state.menuFor = null;
+    void cleanUp(g, 'manual');
+  },
+
+  async useOriginal(g: Garment) {
+    // A generated product shot might not match the real item; the original is always one tap away.
+    state.menuFor = null;
+    const old = g.cleanImageId;
+    await updateGarment(g.id, { cleanImageId: undefined, cleanStatus: undefined });
+    if (old) await deleteImage(old);
+  },
+
+  setShowAll(on) {
+    state.showAll = on;
+    state.filter = 'all';
+    render();
+  },
+
+  filter(f) {
+    state.filter = f;
+    render();
   },
 
   async usePhone() {
     stopPolling();
-    state.drawer = 'closet';
     state.phone = null;
     render();
     try {
@@ -206,56 +238,41 @@ const actions: Actions = {
     }
   },
 
-  askBuy(id) {
-    state.confirmBuy = id;
-    render();
-  },
-
-  openOriginal(g: Garment) {
-    state.menuFor = null;
-    render();
-    if (g.sourcePageUrl && /^https?:\/\//.test(g.sourcePageUrl)) void chrome.tabs.create({ url: g.sourcePageUrl });
-  },
-
-  cleanUp(g: Garment) {
-    state.menuFor = null;
-    void cleanUp(g, 'manual');
-  },
-
-  async useOriginal(g: Garment) {
-    // A generated product shot might not match the real item; the original is always one tap away.
-    state.menuFor = null;
-    const old = g.cleanImageId;
-    await updateGarment(g.id, { cleanImageId: undefined, cleanStatus: undefined });
-    if (old) await deleteImage(old);
-  },
-
   async removeGarment(g: Garment) {
     state.menuFor = null;
-    if (!confirm(`Remove "${g.title ?? 'this item'}" from Cabine?`)) return render();
+    if (!confirm(`Remove "${g.title ?? 'this piece'}" from Cabine?`)) return render();
     await removeGarment(g.id);
     await setOutfit(pruneOutfit(state.outfit, new Map(state.garments.filter((x) => x.id !== g.id).map((x) => [x.id, x]))));
     await Promise.all([deleteImage(g.imageId), g.cleanImageId ? deleteImage(g.cleanImageId) : null]);
   },
 };
 
-// Owned now: move it right away, then clean up its photo in the background if
-// it's a model shot or busy photo (1 credit). Clean product shots are skipped.
-// Follow the piece into My Closet and confirm the move for a few seconds.
-let justAddedTimer: ReturnType<typeof setTimeout> | undefined;
-async function moveToCloset(g: Garment, patch: Partial<Garment>, via: 'buy' | 'menu'): Promise<void> {
-  state.drawer = 'closet';
-  state.filter = 'all';
-  state.justAdded = g.id;
-  clearTimeout(justAddedTimer);
-  justAddedTimer = setTimeout(() => {
-    state.justAdded = null;
-    render();
-  }, 5000);
-  await updateGarment(g.id, { ...patch, location: 'closet' });
-  const needed = await needsCleanup(g);
-  void trackPanel('item_moved_to_closet', { itemId: g.id, category: g.category, via, needsCleanup: needed });
-  if (needed) void cleanUp(g, 'auto');
+// A draft becomes a piece. A store piece starts a fresh look around it; your own
+// piece joins the current look if there's a store piece to wear it with.
+async function saveFromDraft(d: Draft, category: Category, inferred: boolean): Promise<void> {
+  const g: Garment = {
+    id: d.id,
+    location: d.sourceType === 'shopping' ? 'fittingRoom' : 'closet',
+    sourceType: d.sourceType,
+    category,
+    title: d.title,
+    sourcePageUrl: d.sourcePageUrl,
+    sourceImageUrl: d.sourceImageUrl,
+    imageId: d.imageId!,
+    imageVersion: 1,
+    createdAt: Date.now(),
+  };
+  await addGarments([g]);
+  if (g.location === 'fittingRoom') {
+    void trackPanel('store_item_category_selected', { itemId: g.id, category, inferred });
+    await setOutfit({ [category]: g.id });
+    state.view = 'look';
+  } else {
+    void trackPanel('closet_item_uploaded', { itemId: g.id, category, source: 'device' });
+    if (candidateOf(state)) await setOutfit(toggleInOutfit(state.outfit, g));
+    notify('Added to My Closet');
+  }
+  await setDraft(null);
 }
 
 async function cleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
@@ -273,6 +290,17 @@ async function cleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
     void trackPanel('photo_cleanup_failed', { itemId: g.id, code: err instanceof RenderError ? err.code : 'unexpected' });
     await updateGarment(g.id, { cleanStatus: 'failed' });
   }
+}
+
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+function notify(text: string): void {
+  state.notice = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    state.notice = null;
+    render();
+  }, 3000);
+  render();
 }
 
 // While the QR card is open, check the inbox every few seconds. After the QR
@@ -299,11 +327,7 @@ async function pollPhone(): Promise<void> {
     pollFailures = 0;
     for (const g of added) void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' });
     if (state.phone !== p) return;
-    if (added.length) {
-      p.added += added.length;
-      state.drawer = 'closet';
-      state.filter = 'all';
-    }
+    if (added.length) p.added += added.length;
     if (Date.now() > p.expiresAt) p.status = 'expired';
     render();
   } catch (err) {
@@ -331,8 +355,11 @@ async function upload(file: File): Promise<void> {
   const failed = state.draft?.status === 'failed' && state.draft.sourceType === 'shopping' ? state.draft : null;
   if (failed) {
     await putImage(failed.id, file);
-    await setDraft({ ...failed, imageId: failed.id, status: 'ready', error: undefined });
     void trackPanel('store_item_captured', { itemId: failed.id, domain: domainOf(failed.sourcePageUrl), ok: true, via: 'screenshot' });
+    const ready: Draft = { ...failed, imageId: failed.id, status: 'ready', error: undefined };
+    const category = inferCategory(failed.title);
+    if (category) return saveFromDraft(ready, category, true);
+    await setDraft(ready);
     return;
   }
   const id = crypto.randomUUID();
@@ -348,10 +375,15 @@ async function upload(file: File): Promise<void> {
 }
 
 function render(): void {
+  $('header').replaceChildren(headerView(state, actions));
   $('draft').replaceChildren(...(state.draft ? [draftView(state.draft, actions)] : []));
-  $('look').replaceChildren(lookView(state, actions));
-  $('drawers').replaceChildren(...drawersView(state, actions).childNodes);
+  const page = state.view === 'fittingRoom' ? fittingRoomView(state, actions) : state.view === 'closet' ? closetView(state, actions) : lookView(state, actions);
+  $('main').replaceChildren(page);
+  $('notice').replaceChildren(...(state.notice ? [state.notice] : []));
+  $('notice').hidden = !state.notice;
 }
+
+let lastCandidate: string | undefined;
 
 async function refresh(): Promise<void> {
   const stored = await loadState();
@@ -359,14 +391,27 @@ async function refresh(): Promise<void> {
   state.byId = new Map(stored.garments.map((g) => [g.id, g]));
   state.outfit = pruneOutfit(stored.outfit, state.byId);
   state.draft = stored.draft;
+  state.savedLooks = stored.savedLooks;
   state.lookKey = chainOrder(state.outfit, state.byId).length ? await lookKey(state.outfit, state.byId) : null;
   await syncImageUrls([
     ...stored.garments.flatMap((g) => (g.cleanImageId ? [g.imageId, g.cleanImageId] : [g.imageId])),
     ...(stored.draft?.imageId ? [stored.draft.imageId] : []),
+    ...stored.savedLooks.map((l) => l.key),
   ]);
 
+  // A new store piece in the look (just captured, or picked in the Fitting Room):
+  // go to it and ask what goes with it.
+  const candidate = candidateOf(state)?.id;
+  if (candidate && candidate !== lastCandidate) {
+    state.view = 'look';
+    state.editing = false;
+    state.showAll = false;
+    state.typeFor = null;
+  }
+  lastCandidate = candidate;
+
   // Show a look's saved render when coming back to it; keep an older render
-  // (dimmed) while the look is being changed; clear it when the look is empty.
+  // (faded) while the look is being changed; clear it when the look is empty.
   if (!state.lookKey) setRender(null);
   else if (state.render?.key !== state.lookKey) {
     const saved = await getSavedRender(state.lookKey);
@@ -390,13 +435,13 @@ document.addEventListener('paste', (e) => {
   void upload(file);
 });
 
-// Close an open item menu when clicking anywhere else.
+// Close an open ⋯ menu when clicking anywhere else.
 document.addEventListener('click', (e) => {
-  if (state.menuFor && !(e.target as Element).closest('.item-wrap')) actions.toggleMenu(null);
+  if (state.menuFor && !(e.target as Element).closest('.tile-wrap')) actions.toggleMenu(null);
 });
 
 chrome.storage.local.onChanged.addListener((changes) => {
-  if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes) void refresh();
+  if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes || KEYS.savedLooks in changes) void refresh();
 });
 
 void refresh();

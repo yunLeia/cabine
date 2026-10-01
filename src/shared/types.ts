@@ -28,10 +28,18 @@ export interface Garment {
   imageVersion: number; // bumped if the image is replaced; part of the render cache key
   cleanImageId?: string; // extracted product shot, for My Closet thumbnails only (renders use the original)
   cleanStatus?: 'pending' | 'failed'; // a clean-up in progress, or the last one failed
-  // The shopper's call on a Fitting Room piece after seeing it styled. Pass keeps
-  // the record (hidden from the drawers) so decisions can be counted later.
+  // Buy / Save / Pass from before D26. No longer set; 'pass' pieces stay hidden.
   decision?: 'buy' | 'save' | 'pass';
   decidedAt?: number;
+  lastUsedAt?: number; // last time it was in a look you looked at; closet suggestions favour recent pieces
+  createdAt: number;
+}
+
+// A look the user chose to keep ("♡ Save look"). Its picture is the local render
+// saved under `key` in IndexedDB.
+export interface SavedLook {
+  key: string;
+  outfit: Outfit;
   createdAt: number;
 }
 
@@ -39,6 +47,8 @@ export interface Garment {
 export interface Draft {
   id: string;
   sourceType: 'shopping' | 'closet';
+  // Store captures are saved straight away when the title gives the category
+  // (shared/infer.ts); a draft only waits when it couldn't be guessed.
   title?: string;
   sourcePageUrl?: string;
   sourceImageUrl?: string;

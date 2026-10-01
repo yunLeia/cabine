@@ -23,7 +23,11 @@ export type EventName =
   | 'item_moved_to_closet'
   | 'photo_cleanup_requested'
   | 'photo_cleanup_completed'
-  | 'photo_cleanup_failed';
+  | 'photo_cleanup_failed'
+  | 'original_page_opened'
+  | 'look_saved'
+  | 'try_another_look'
+  | 'category_edited';
 
 export type EventProps = Record<string, string | number | boolean | string[]>;
 export interface QueuedEvent {

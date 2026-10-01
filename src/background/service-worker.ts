@@ -1,7 +1,8 @@
 import { domainOf, track } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
-import { getDraft, setDraft } from '../shared/store';
-import type { Draft } from '../shared/types';
+import { inferCategory } from '../shared/infer';
+import { addGarments, getDraft, setDraft, setOutfit } from '../shared/store';
+import type { Draft, Garment } from '../shared/types';
 
 // Background service worker: the extension's event hub. Chrome starts it when an
 // event it listens for fires and stops it when idle, so it must not hold state
@@ -70,13 +71,41 @@ async function capture(srcUrl: string, pageUrl?: string, pageTitle?: string): Pr
     const blob = await res.blob();
     if (!blob.type.startsWith('image/')) throw new Error(`not an image (${blob.type || 'unknown type'})`);
     await putImage(draft.id, blob);
-    await updateDraftIfCurrent(draft.id, { status: 'ready', imageId: draft.id });
     void track('worker', 'store_item_captured', { itemId: draft.id, domain: domainOf(pageUrl), ok: true });
+    // Don't ask what it is when the title says (D26). If it can't be guessed,
+    // the draft waits and the panel asks once.
+    const category = inferCategory(pageTitle);
+    if (category && (await getDraft())?.id === draft.id) {
+      await saveCapture({ ...draft, imageId: draft.id, status: 'ready' }, category);
+      void track('worker', 'store_item_category_selected', { itemId: draft.id, category, inferred: true });
+    } else {
+      await updateDraftIfCurrent(draft.id, { status: 'ready', imageId: draft.id });
+    }
   } catch (err) {
     console.warn('[cabine] capture failed', srcUrl, err);
     void track('worker', 'store_item_captured', { itemId: draft.id, domain: domainOf(pageUrl), ok: false });
     await updateDraftIfCurrent(draft.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+// A store capture becomes the piece in a fresh look: "What would you wear this with?"
+async function saveCapture(d: Draft, category: Garment['category']): Promise<void> {
+  await addGarments([
+    {
+      id: d.id,
+      location: 'fittingRoom',
+      sourceType: 'shopping',
+      category,
+      title: d.title,
+      sourcePageUrl: d.sourcePageUrl,
+      sourceImageUrl: d.sourceImageUrl,
+      imageId: d.imageId!,
+      imageVersion: 1,
+      createdAt: Date.now(),
+    },
+  ]);
+  await setOutfit({ [category]: d.id });
+  await setDraft(null);
 }
 
 // The user may have captured something else or discarded this draft while it
