@@ -442,3 +442,10 @@ docs/
 - When the look changes, the frame goes back to the empty mannequin instead of fading the old picture. Coming back to a combination you've already seen shows its saved picture.
 - **Not done:** a hat box. There's no hat category, and the render prompt and server validation only know top, bottom, dress, outerwear and shoes.
 - The clean-up limit stays at 10 a day per person (decided).
+
+### D26 revision 5: back to the mannequin; picked pieces in a row
+
+- The Look Board trial was reverted (it didn't feel right). The empty mannequin stays.
+- The vertical OUTER / TOP / BOTTOM / SHOES rail is gone: empty category boxes read as "fill every slot".
+- In its place, a horizontal row under the mannequin shows only the chosen pieces, head to toe. Each has × to take it off and an oxblood edge for store pieces; tapping one switches the chips to its kind.
+- The frame is now full width, so its height is capped at 56vh to keep the row and the button in view. The whole figure still shows.

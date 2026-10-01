@@ -227,33 +227,26 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   );
 }
 
-// The boxes beside the mannequin, head to toe. A dress takes the top and
-// bottom boxes together. Tapping a box shows that kind below.
-function slotBox(s: ViewState, a: Actions, kind: Category, label: string, tall = false): HTMLElement {
-  const g = s.outfit[kind] ? s.byId.get(s.outfit[kind]!) : undefined;
+// The pieces you picked, in a row under the mannequin, head to toe. Only
+// what's chosen: no empty boxes asking to be filled. Tapping one shows its
+// kind below; × takes it off.
+function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement | null {
+  if (!worn.length) return null;
   return h(
-    'div',
-    { class: `slot${g ? ' filled' : ''}${g?.location === 'fittingRoom' ? ' store' : ''}${tall ? ' tall' : ''}` },
-    h(
-      'button',
-      { type: 'button', class: 'slot-main', 'aria-label': g ? `${label}: ${name(g)}` : `Choose ${label.toLowerCase()}`, title: g ? name(g) : label, onclick: () => a.filter(kind) },
-      g ? img(thumbSrc(g), 'slot-img', name(g)) : h('span', { class: 'slot-label' }, label),
+    'ul',
+    { class: 'picked' },
+    ...worn.map((g) =>
+      h(
+        'li',
+        { class: g.location === 'fittingRoom' ? 'picked-piece store' : 'picked-piece' },
+        h('button', { type: 'button', class: 'picked-main', title: name(g), 'aria-label': name(g), onclick: () => a.filter(g.category) }, img(thumbSrc(g), 'picked-img', name(g))),
+        h('button', { type: 'button', class: 'picked-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
+      ),
     ),
-    g && h('button', { type: 'button', class: 'slot-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
   );
 }
 
-function slots(s: ViewState, a: Actions): HTMLElement {
-  return h(
-    'div',
-    { class: 'slots' },
-    slotBox(s, a, 'outerwear', 'Outer'),
-    ...(s.outfit.dress ? [slotBox(s, a, 'dress', 'Dress', true)] : [slotBox(s, a, 'top', 'Top'), slotBox(s, a, 'bottom', 'Bottom')]),
-    slotBox(s, a, 'shoes', 'Shoes'),
-  );
-}
-
-// The look, always at the top: mannequin + boxes, then one row of actions.
+// The look, always at the top: the mannequin, the picked pieces, then one row of actions.
 function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const shown = s.render?.key === s.lookKey && !s.cleared;
   const rendered = shown && s.render?.status === 'done';
@@ -263,7 +256,8 @@ function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
     'section',
     { class: 'look', 'aria-label': 'Your Look' },
     h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look')),
-    h('div', { class: 'look-stage' }, lookFrame(s, a, worn), slots(s, a)),
+    lookFrame(s, a, worn),
+    picked(s, a, worn),
     rendered
       ? h(
           'div',

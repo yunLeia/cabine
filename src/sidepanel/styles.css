@@ -100,25 +100,22 @@ main { padding: 0 16px; }
 
 /* ---- The look: mannequin + boxes ---- */
 .look { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-.look-stage { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 8px; margin-top: 10px; align-items: stretch; }
-.slots { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-.slot { position: relative; flex: 1; min-height: 56px; }
-.slot.tall { flex: 2; }
-.slot-main {
-  width: 100%; height: 100%; padding: 4px; cursor: pointer; display: grid; place-items: center;
-  background: #fff; border: 1px dashed var(--line); border-radius: var(--radius);
-  transition: border-color 150ms var(--ease);
+.picked { list-style: none; margin: 10px 0 0; padding: 4px 0 2px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.picked-piece { position: relative; flex: none; width: 60px; height: 76px; margin-top: 6px; }
+.picked-main {
+  width: 100%; height: 100%; padding: 3px; cursor: pointer; display: block;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  animation: place 200ms var(--ease) both;
 }
-.slot-main:hover { border-color: var(--muted); }
-.slot.filled .slot-main { border-style: solid; }
-.slot.store .slot-main { border-color: var(--oxblood); }
-.slot-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.slot-img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.slot-off {
+@keyframes place { from { opacity: 0; transform: translateY(4px); } }
+.picked-main:hover { border-color: var(--muted); }
+.picked-piece.store .picked-main { border-color: var(--oxblood); }
+.picked-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.picked-off {
   position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; line-height: 1;
   border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--muted); cursor: pointer; font-size: 12px;
 }
-.slot-off:hover { color: var(--ink); border-color: var(--ink); }
+.picked-off:hover { color: var(--ink); border-color: var(--ink); }
 .result-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .pieces { padding-top: 14px; }
 
@@ -185,7 +182,7 @@ main { padding: 0 16px; }
 
 /* ---- The picture: the mannequin's proportions, so the whole figure always shows ---- */
 .render-frame {
-  position: relative; width: 100%; aspect-ratio: 848 / 1264; max-height: 72vh; border-radius: var(--radius); overflow: hidden;
+  position: relative; width: 100%; aspect-ratio: 848 / 1264; max-height: 56vh; margin-top: 10px; border-radius: var(--radius); overflow: hidden;
   background: #fff; border: 1px solid var(--line);
 }
 .frame-overlay {
@@ -208,7 +205,7 @@ main { padding: 0 16px; }
   padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.9); color: var(--muted); border: 1px solid var(--line);
 }
 @media (prefers-reduced-motion: reduce) {
-  .render-img.reveal, .render-frame.running .frame-overlay, .hanger svg { animation: none; }
+  .render-img.reveal, .render-frame.running .frame-overlay, .picked-main, .hanger svg { animation: none; }
 }
 
 /* ---- Empty states ---- */
