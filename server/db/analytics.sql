@@ -49,8 +49,13 @@ select count(*) as renders,
 from events where name = 'outfit_render_completed';
 
 -- name: Captures by store (success rate)
-select props->>'domain' as store, count(*) as captures,
-       round(100.0 * count(*) filter (where (props->>'ok')::boolean) / count(*), 0) as ok_pct
+-- A failed capture the person fixed with a screenshot logs a second row
+-- (via = 'screenshot') for the same item.
+select props->>'domain' as store,
+       count(distinct props->>'itemId') as captures,
+       round(100.0 * count(*) filter (where (props->>'ok')::boolean and props->>'via' is null)
+             / count(distinct props->>'itemId'), 0) as ok_pct,
+       count(*) filter (where props->>'via' = 'screenshot') as fixed_by_screenshot
 from events where name = 'store_item_captured'
 group by 1 order by captures desc limit 20;
 

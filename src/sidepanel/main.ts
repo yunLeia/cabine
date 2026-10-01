@@ -1,3 +1,4 @@
+import { domainOf } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, updateGarment } from '../shared/store';
@@ -325,6 +326,15 @@ function setRender(r: RenderState | null): void {
 }
 
 async function upload(file: File): Promise<void> {
+  // A store capture that failed: this upload is its screenshot, so it keeps the
+  // store details and goes to the Fitting Room like any capture.
+  const failed = state.draft?.status === 'failed' && state.draft.sourceType === 'shopping' ? state.draft : null;
+  if (failed) {
+    await putImage(failed.id, file);
+    await setDraft({ ...failed, imageId: failed.id, status: 'ready', error: undefined });
+    void trackPanel('store_item_captured', { itemId: failed.id, domain: domainOf(failed.sourcePageUrl), ok: true, via: 'screenshot' });
+    return;
+  }
   const id = crypto.randomUUID();
   await putImage(id, file);
   await setDraft({
@@ -370,6 +380,14 @@ input.addEventListener('change', () => {
   const file = input.files?.[0];
   if (file) void upload(file);
   input.value = ''; // allow picking the same file again
+});
+
+// Paste an image (e.g. a screenshot copied with Cmd+Ctrl+Shift+4) anywhere in the panel.
+document.addEventListener('paste', (e) => {
+  const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
+  if (!file) return;
+  e.preventDefault();
+  void upload(file);
 });
 
 // Close an open item menu when clicking anywhere else.

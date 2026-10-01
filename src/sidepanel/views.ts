@@ -69,8 +69,24 @@ const img = (src: string | undefined, cls: string, alt = '') =>
 // ---- Draft: "What type of item is this?" ----------------------------------------
 
 export function draftView(d: Draft, a: Actions): HTMLElement {
-  const status =
-    d.status === 'downloading' ? 'Saving the image…' : d.status === 'failed' ? `Couldn't save this image (${d.error}). Try another image.` : null;
+  if (d.status === 'failed') {
+    // Some stores block downloads. A screenshot of the product works just as well.
+    return h(
+      'section',
+      { class: 'draft failed', 'aria-label': 'New item', role: 'alert' },
+      h(
+        'div',
+        { class: 'draft-body' },
+        h('span', { class: 'eyebrow' }, 'To your Fitting Room'),
+        d.title && h('strong', { class: 'draft-title', title: d.title }, d.title),
+        h('p', {}, "This store didn't let Cabine save the image."),
+        h('p', { class: 'muted small' }, 'Take a screenshot of the product, then upload it, or paste it here (⌘V).'),
+        h('label', { class: 'button', for: 'upload-input' }, 'Upload a screenshot'),
+      ),
+      h('button', { type: 'button', class: 'link', onclick: a.discardDraft }, 'Discard'),
+    );
+  }
+  const status = d.status === 'downloading' ? 'Saving the image…' : null;
   return h(
     'section',
     { class: 'draft', 'aria-label': 'New item' },

@@ -169,3 +169,5 @@ button.button { background: var(--bg); font: inherit; font-size: 13px; }
 .phone-added { margin: 8px 0; font-weight: 600; color: var(--accent); }
 .phone-waiting { margin: 8px 0; color: var(--muted); font-size: 13px; }
 .phone-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.draft-body .button { align-self: flex-start; margin-top: 4px; }
+.draft.failed p { margin: 0; }
