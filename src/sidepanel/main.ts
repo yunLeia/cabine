@@ -9,7 +9,7 @@ import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
-import { candidateOf, closetView, draftView, fittingRoomView, headerView, lookView, type Actions, type RenderState, type ViewState } from './views';
+import { candidateOf, closetView, fitBoard, draftView, fittingRoomView, headerView, lookView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
 // and only changes through storage writes + onChanged. The rest is UI state.
@@ -121,7 +121,7 @@ const actions: Actions = {
   },
 
   tryAnother() {
-    // Back to the empty mannequin; the chosen pieces stay in their boxes.
+    // Back to the Look Board; the chosen pieces stay on it.
     state.cleared = true;
     void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
     render();
@@ -395,6 +395,7 @@ function render(): void {
   $('notice').replaceChildren(...(state.notice ? [state.notice] : []));
   $('notice').hidden = !state.notice;
   // A ⋯ menu opens leftwards from its tile; on the first column, flip it so it isn't cut off.
+  fitBoard();
   const menu = document.querySelector<HTMLElement>('.menu');
   if (menu && menu.getBoundingClientRect().left < 8) menu.classList.add('flip');
 }
@@ -436,6 +437,8 @@ async function refresh(): Promise<void> {
   }
   render();
 }
+
+window.addEventListener('resize', fitBoard);
 
 const input = $('upload-input') as HTMLInputElement;
 input.addEventListener('change', () => {

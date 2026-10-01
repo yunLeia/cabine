@@ -32,7 +32,7 @@ export interface ViewState {
   filter: Category | 'all';
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
-  cleared: boolean; // "Try another": back to the empty mannequin, pieces still chosen
+  cleared: boolean; // "Try another": back to the board, pieces still chosen
   notice: string | null; // a short confirmation at the bottom
   phone: PhoneSession | null; // an open "Use your phone" QR session
 }
@@ -187,73 +187,115 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
 const revealed = new Set<string>();
 const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
 
-const MANNEQUIN = '/mannequin.jpg';
+// ---- The Look Board ------------------------------------------------------------------
+// Before the picture, no body: the chosen pieces themselves, laid out like a
+// fashion moodboard. Nothing marks what's "missing"; it's just what you picked.
 
-// The mannequin frame: empty until you ask to see the look, then "Putting it
-// together…", then the result. It keeps the mannequin's proportions so the whole
-// figure is always visible, however wide the panel is.
+type Box = { x: number; y: number; w: number; h: number }; // % of the board
+
+// Where each kind sits. Loosely head to toe and staggered, the way a stylist
+// would lay pieces on a table: a coat tall on the right, a top up left with the
+// trousers below it, shoes small near the bottom.
+function boardLayout(worn: Garment[]): Map<Garment, Box> {
+  const by = (c: Category) => worn.find((g) => g.category === c);
+  const outer = by('outerwear');
+  const dress = by('dress');
+  const top = by('top');
+  const bottom = by('bottom');
+  const shoes = by('shoes');
+  const at = new Map<Garment, Box>();
+
+  if (worn.length === 1) {
+    at.set(worn[0], { x: 14, y: 6, w: 72, h: 88 });
+    return at;
+  }
+  if (worn.length === 2 && !shoes) {
+    // Two garments side by side, offset.
+    const [first, second] = worn;
+    at.set(first, { x: 4, y: 4, w: 52, h: 66 });
+    at.set(second, { x: 44, y: 30, w: 52, h: 66 });
+    return at;
+  }
+  if (outer) {
+    at.set(outer, { x: 50, y: 3, w: 46, h: 64 });
+    if (dress) at.set(dress, { x: 4, y: 6, w: 46, h: 84 });
+    if (top) at.set(top, { x: 3, y: 5, w: 46, h: 44 });
+    if (bottom) at.set(bottom, { x: top ? 14 : 6, y: top ? 44 : 10, w: 38, h: top ? 52 : 80 });
+    if (shoes) at.set(shoes, { x: 58, y: 70, w: 34, h: 26 });
+  } else {
+    if (dress) at.set(dress, { x: 8, y: 4, w: 52, h: 90 });
+    if (top) at.set(top, { x: 4, y: 6, w: 50, h: 48 });
+    if (bottom) at.set(bottom, { x: top ? 50 : 10, y: top ? 18 : 6, w: top ? 44 : 56, h: top ? 74 : 86 });
+    if (shoes) at.set(shoes, dress || !top ? { x: 60, y: 64, w: 34, h: 30 } : { x: 10, y: 62, w: 36, h: 30 });
+  }
+  return at;
+}
+
+function lookBoard(s: ViewState, a: Actions, worn: Garment[], overlay?: HTMLElement): HTMLElement {
+  const layout = boardLayout(worn);
+  return h(
+    'div',
+    { class: 'board' },
+    ...worn.map((g, i) => {
+      const b = layout.get(g)!;
+      // The piece gets an area of the board; inside it, .board-fit is sized to
+      // the photo itself (fitBoard), so the tag and × sit on the photo's corners.
+      const photo = img(thumbSrc(g), 'board-img', name(g));
+      if (photo instanceof HTMLImageElement) photo.addEventListener('load', () => fitPiece(photo));
+      return h(
+        'div',
+        { class: g.location === 'fittingRoom' ? 'board-piece store' : 'board-piece', style: `left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;z-index:${g.category === 'shoes' ? 9 : i + 1}` },
+        h(
+          'div',
+          { class: 'board-fit' },
+          h('button', { type: 'button', class: 'board-main', title: name(g), 'aria-label': name(g), onclick: () => a.filter(g.category) }, photo),
+          g.location === 'fittingRoom' && h('span', { class: 'board-tag' }, 'Store'),
+          h('button', { type: 'button', class: 'board-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
+        ),
+      );
+    }),
+    worn.length === 0 && h('div', { class: 'board-empty' }, h('p', { class: 'board-empty-title' }, 'Your look starts here'), h('p', { class: 'muted small' }, 'Pick pieces below')),
+    overlay,
+  );
+}
+
+// Size a piece's frame to its photo, contained in the piece's area.
+function fitPiece(photo: HTMLImageElement): void {
+  const fit = photo.closest<HTMLElement>('.board-fit');
+  const area = fit?.parentElement;
+  if (!fit || !area || !photo.naturalWidth) return;
+  const scale = Math.min(area.clientWidth / photo.naturalWidth, area.clientHeight / photo.naturalHeight);
+  const w = photo.naturalWidth * scale;
+  const h = photo.naturalHeight * scale;
+  Object.assign(fit.style, { width: `${w}px`, height: `${h}px`, left: `${(area.clientWidth - w) / 2}px`, top: `${(area.clientHeight - h) / 2}px` });
+}
+
+export function fitBoard(): void {
+  document.querySelectorAll<HTMLImageElement>('.board-img').forEach((p) => p.complete && fitPiece(p));
+}
+
+// The board, or the picture once you've asked to see them together.
 function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const r = s.render;
   const current = !!r && r.key === s.lookKey && !s.cleared;
   if (r?.status === 'running' && current) {
-    return h(
-      'div',
-      { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
-      h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-      h('div', { class: 'frame-overlay' }, h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')),
-    );
+    return lookBoard(s, a, worn, h('div', { class: 'frame-overlay', role: 'status', 'aria-live': 'polite' }, h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')));
   }
   if (r?.status === 'error' && current) {
-    return h(
-      'div',
-      { class: 'render-frame error', role: 'alert' },
-      h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-      h('div', { class: 'frame-overlay' }, h('p', {}, r.error ?? 'Something went wrong.'), h('button', { type: 'button', class: 'text-button', onclick: a.seeTogether }, 'Try again')),
-    );
+    return lookBoard(s, a, worn, h('div', { class: 'frame-overlay', role: 'alert' }, h('p', {}, r.error ?? 'Something went wrong.'), h('button', { type: 'button', class: 'text-button', onclick: a.seeTogether }, 'Try again')));
   }
   if (r?.status === 'done' && r.imageUrl && current) {
     markRevealed(r.imageUrl);
     return h(
       'div',
-      { class: 'render-frame done' },
+      { class: 'board result' },
       h('img', { class: revealed.has(r.imageUrl) ? 'render-img' : 'render-img reveal', src: r.imageUrl, alt: 'The pieces together on a mannequin' }),
     );
   }
-  return h(
-    'div',
-    { class: 'render-frame idle' },
-    h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-    worn.length === 0 && h('p', { class: 'frame-hint small' }, 'Pick pieces below'),
-  );
+  return lookBoard(s, a, worn);
 }
 
-// The boxes beside the mannequin, head to toe. A dress takes the top and
-// bottom boxes together. Tapping a box shows that kind below.
-function slotBox(s: ViewState, a: Actions, kind: Category, label: string, tall = false): HTMLElement {
-  const g = s.outfit[kind] ? s.byId.get(s.outfit[kind]!) : undefined;
-  return h(
-    'div',
-    { class: `slot${g ? ' filled' : ''}${g?.location === 'fittingRoom' ? ' store' : ''}${tall ? ' tall' : ''}` },
-    h(
-      'button',
-      { type: 'button', class: 'slot-main', 'aria-label': g ? `${label}: ${name(g)}` : `Choose ${label.toLowerCase()}`, title: g ? name(g) : label, onclick: () => a.filter(kind) },
-      g ? img(thumbSrc(g), 'slot-img', name(g)) : h('span', { class: 'slot-label' }, label),
-    ),
-    g && h('button', { type: 'button', class: 'slot-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
-  );
-}
-
-function slots(s: ViewState, a: Actions): HTMLElement {
-  return h(
-    'div',
-    { class: 'slots' },
-    slotBox(s, a, 'outerwear', 'Outer'),
-    ...(s.outfit.dress ? [slotBox(s, a, 'dress', 'Dress', true)] : [slotBox(s, a, 'top', 'Top'), slotBox(s, a, 'bottom', 'Bottom')]),
-    slotBox(s, a, 'shoes', 'Shoes'),
-  );
-}
-
-// The look, always at the top: mannequin + boxes, then one row of actions.
+// The look, always at the top: the board (or the picture), then one row of actions.
 function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const shown = s.render?.key === s.lookKey && !s.cleared;
   const rendered = shown && s.render?.status === 'done';
@@ -263,7 +305,7 @@ function lookSection(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
     'section',
     { class: 'look', 'aria-label': 'Your Look' },
     h('div', { class: 'look-head' }, h('h2', { class: 'label' }, 'Your Look')),
-    h('div', { class: 'look-stage' }, lookFrame(s, a, worn), slots(s, a)),
+    lookFrame(s, a, worn),
     rendered
       ? h(
           'div',
