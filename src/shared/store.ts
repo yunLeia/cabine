@@ -26,25 +26,29 @@ export async function loadState(): Promise<StoredState> {
   };
 }
 
-export async function addGarments(add: Garment[]): Promise<void> {
-  const { garments } = await loadState();
-  await chrome.storage.local.set({ [KEYS.garments]: [...garments, ...add] });
+// Every change to the garment list is read-modify-write. With phone uploads and
+// several photo clean-ups finishing at once, two of them could read the same
+// list and the second write would drop the first one's change, so they run one
+// at a time.
+let garmentWrites: Promise<unknown> = Promise.resolve();
+function changeGarments(change: (garments: Garment[]) => Garment[]): Promise<void> {
+  const next = garmentWrites.then(async () => {
+    const { garments } = await loadState();
+    await chrome.storage.local.set({ [KEYS.garments]: change(garments) });
+  });
+  garmentWrites = next.catch(() => {});
+  return next;
 }
 
-export async function updateGarment(id: string, patch: Partial<Garment>): Promise<void> {
-  const { garments } = await loadState();
-  await chrome.storage.local.set({ [KEYS.garments]: garments.map((g) => (g.id === id ? { ...g, ...patch } : g)) });
-}
+export const addGarments = (add: Garment[]) => changeGarments((garments) => [...garments, ...add]);
 
-export async function removeGarment(id: string): Promise<void> {
-  const { garments } = await loadState();
-  await chrome.storage.local.set({ [KEYS.garments]: garments.filter((g) => g.id !== id) });
-}
+export const updateGarment = (id: string, patch: Partial<Garment>) =>
+  changeGarments((garments) => garments.map((g) => (g.id === id ? { ...g, ...patch } : g)));
 
-export async function updateGarments(ids: string[], patch: Partial<Garment>): Promise<void> {
-  const { garments } = await loadState();
-  await chrome.storage.local.set({ [KEYS.garments]: garments.map((g) => (ids.includes(g.id) ? { ...g, ...patch } : g)) });
-}
+export const removeGarment = (id: string) => changeGarments((garments) => garments.filter((g) => g.id !== id));
+
+export const updateGarments = (ids: string[], patch: Partial<Garment>) =>
+  changeGarments((garments) => garments.map((g) => (ids.includes(g.id) ? { ...g, ...patch } : g)));
 
 export const setSavedLooks = (looks: SavedLook[]) => chrome.storage.local.set({ [KEYS.savedLooks]: looks });
 

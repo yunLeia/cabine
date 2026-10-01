@@ -429,3 +429,7 @@ docs/
   - several store pieces: one "↗" link per piece, plus Save.
 - **"I got this — add to My Closet" always cleans up the photo** (1 credit). The "is it already clean?" check and the manual "Clean up photo" option are gone. While it runs, the tile shows a hanger turning on its hook. After a failure, the ⋯ menu offers "Try the clean-up again"; "Use original photo" stays.
 - The ⋯ menu flips right on the first column so it isn't cut off.
+- **Uploads are cleaned up too** (from this computer or the phone), right away, 1 credit each. This supersedes D19's "on demand for uploads".
+  - Clean-ups queue two at a time, and the hanger shows from the moment a piece is queued.
+  - Writes to the garment list now run one at a time (`store.ts`). With a phone batch and several clean-ups finishing together, parallel read-modify-writes could drop a piece.
+  - Watch: the per-person limit is 10 clean-ups a day (`USER_DAILY_CLEANUPS`), so a first phone session of 20 photos leaves 10 at "Couldn't clean up" until tomorrow.

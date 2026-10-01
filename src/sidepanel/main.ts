@@ -214,7 +214,7 @@ const actions: Actions = {
     // One last pull, in case the phone finished just before Done.
     if (p?.token) {
       void pullPhoneUploads(p.token)
-        .then(({ added }) => added.forEach((g) => void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' })))
+        .then(({ added }) => added.forEach((g) => phoneArrived(g)))
         .catch(() => {});
     }
   },
@@ -251,12 +251,34 @@ async function saveFromDraft(d: Draft, category: Category, inferred: boolean): P
     void trackPanel('closet_item_uploaded', { itemId: g.id, category, source: 'device' });
     if (candidateOf(state)) await setOutfit(toggleInOutfit(state.outfit, g));
     notify('Added to My Closet');
+    void cleanUp(g, 'auto'); // your own photos get a clean product shot too
   }
   await setDraft(null);
 }
 
+function phoneArrived(g: Garment): void {
+  void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' });
+  void cleanUp(g, 'auto');
+}
+
+// Clean-ups wait their turn, two at a time: a phone session can bring in a
+// dozen photos at once. Each tile shows the hanger from the moment it's queued.
+const CLEANUP_PARALLEL = 2;
+let cleanupsRunning = 0;
+const cleanupQueue: (() => void)[] = [];
 async function cleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
   await updateGarment(g.id, { cleanStatus: 'pending' });
+  if (cleanupsRunning >= CLEANUP_PARALLEL) await new Promise<void>((go) => cleanupQueue.push(go));
+  cleanupsRunning++;
+  try {
+    await runCleanUp(g, trigger);
+  } finally {
+    cleanupsRunning--;
+    cleanupQueue.shift()?.();
+  }
+}
+
+async function runCleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
   void trackPanel('photo_cleanup_requested', { itemId: g.id, category: g.category, trigger });
   const started = Date.now();
   try {
@@ -305,7 +327,7 @@ async function pollPhone(): Promise<void> {
   try {
     const { added } = await pullPhoneUploads(p.token);
     pollFailures = 0;
-    for (const g of added) void trackPanel('closet_item_uploaded', { itemId: g.id, category: g.category, source: 'phone' });
+    added.forEach(phoneArrived);
     if (state.phone !== p) return;
     if (added.length) p.added += added.length;
     if (Date.now() > p.expiresAt) p.status = 'expired';
