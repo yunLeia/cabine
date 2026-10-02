@@ -458,6 +458,7 @@ docs/
   - Made by `scripts/brand-loading.py`: a round "pen" follows hand-placed centrelines and reveals the real logo pixels, so the mark is exact. The finished frame matches the logo (max difference 5/255).
   - The C and the hanger are separate layers: the hanger's thin lines are carved out of the C, never its thick stroke. That way the C's wide pen doesn't uncover the hanger early.
   - The tip stays with the C. The hanger pens are wider than the carved zone, so there's no seam.
+  - Where the left arm's root flares into the C's inner edge, the pixels just right of the edge (measured: x ≈ 52.5 + (y − 206) / 2) go to the arm. Before the arm arrives, the C's edge is smooth.
   - One continuous stroke at a steady speed, eased only at the start and end.
   - Exports: a transparent 40 fps WebP for the panel, plus 25 fps GIFs on white and on ivory (`docs/brand/`).
 - **Source:** the user's logo images. The monogram is cut from the wordmark, with the "a" removed where the hanger tip meets it.

@@ -96,6 +96,12 @@ for path in (RIGHT_ARM, HOOK, LEFT_ARM):
 # Never carve the C's thick stroke: whatever survives a 9 px erosion is C body.
 THICK = INK.point(lambda v: 255 if v > 128 else 0).filter(ImageFilter.MinFilter(9)).filter(ImageFilter.MaxFilter(9))
 ZONE = ImageChops.subtract(down(zone).filter(ImageFilter.MaxFilter(3)), THICK)
+# Where the left arm joins the C, its root flares into the C's inner edge and
+# the erosion above keeps it as "C". Everything just right of the inner edge
+# there belongs to the arm (edge measured on the logo: x ≈ 52.5 + (y − 206) / 2).
+joint = Image.new('L', (W, H), 0)
+ImageDraw.Draw(joint).polygon([(52.5 + (y - 206) / 2 + 0.5, y) for y in (205, 220)] + [(76, 220), (76, 205)], fill=255)
+ZONE = ImageChops.lighter(ZONE, joint)
 HANGER_INK = ImageChops.multiply(INK, ZONE)
 C_INK = ImageChops.subtract(INK, HANGER_INK)
 
