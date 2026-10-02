@@ -506,3 +506,24 @@ docs/
   - **Chosen filter chip:** the gradient. The draft card's edge is lilac. Focus rings are lilac.
 - Text stays soft black (#1A1A1A) on white. The background stays white, as decided earlier.
 - Motion is off when the system asks for reduced motion.
+
+## D31. The Cabine design system
+
+Applied from the user's design-system board to the panel, the phone upload page and the privacy page.
+- **Colours:**
+  - background: ivory #FAFAF7
+  - primary text: soft black #1A1A1A
+  - secondary: warm gray #9A9A9A; for small text it's darkened to #74746F so it stays readable
+  - **accent: silver blue #CBD8F1**
+  - UI surfaces: pale gray #E9ECEF family
+  - support: misty lilac #D5CFF1, blush neutral #F7E1DB, butter cream #FFF3DB
+- **Gradient:** the tab underline now runs silver blue → lilac → blush → cream. It still sweeps in on hover and marks the current tab.
+- **Type:** Inter for all UI (`@fontsource-variable/inter`, bundled; replaces Inter Tight). The wordmark is the only serif. Labels are uppercase and letter-spaced. Headings are semibold.
+- **Buttons:** pills with uppercase, letter-spaced semibold labels, each with a default, hover and pressed state.
+  - **Primary:** filled silver blue with a soft blue shadow. Used for See them together →, Save this look, and Use your phone on an empty closet.
+  - **Secondary:** white with a hairline border. Used for Try another, Use your phone and Try again.
+  - **Utility:** white with a hairline border and a + icon. Used for Upload, Upload a screenshot and Add.
+- **Icons:** thin line icons in `src/sidepanel/icons.ts`: arrow, plus, heart (empty and filled), refresh, hanger, phone, check.
+- **Selection:** a silver-blue frame with a soft blue shadow, and a ✓ in a silver-blue dot. Chosen chips and category options are filled silver blue.
+- **App icon:** the C on a soft silver-blue → ivory → cream tile, as on the board.
+- **Supersedes:** D30's pastel rainbow as the main accent (the softer gradient stays on the tabs), and D26's 6 px corners (now 10 px cards and pill controls).

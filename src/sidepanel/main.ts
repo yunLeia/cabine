@@ -1,4 +1,4 @@
-import '@fontsource-variable/inter-tight';
+import '@fontsource-variable/inter';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';

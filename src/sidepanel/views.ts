@@ -1,6 +1,7 @@
 import { CATEGORIES, CATEGORY_LABEL, isSaved, type Category, type Draft, type Garment, type Outfit, type SavedLook } from '../shared/types';
 import { productName } from '../shared/infer';
 import { h } from './dom';
+import { icon } from './icons';
 import { imageUrl } from './image-urls';
 import { qrSvg, type PhoneSession } from './phone';
 
@@ -134,7 +135,7 @@ function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick?: () => void
         onclick: opts.onclick ?? (() => a.toggleMenu(s.menuFor === g.id ? null : g.id)),
       },
       img(thumbSrc(g), 'tile-img', name(g)),
-      h('span', { class: 'tile-check', 'aria-hidden': 'true' }, '✓'),
+      h('span', { class: 'tile-check', 'aria-hidden': 'true' }, icon('check')),
       g.location === 'closet' && g.cleanStatus === 'pending' && cleaningOverlay(),
       g.location === 'closet' && g.cleanStatus === 'failed' && h('span', { class: 'tile-badge failed' }, "Couldn't clean up"),
     ),
@@ -181,7 +182,7 @@ export function draftView(d: Draft, a: Actions): HTMLElement {
     return head([
       h('p', {}, "This store didn't let Cabine save the image."),
       h('p', { class: 'muted small' }, 'Take a screenshot of the product, then upload it or paste it here (⌘V).'),
-      h('label', { class: 'btn btn-secondary', for: 'upload-input' }, 'Upload a screenshot'),
+      h('label', { class: 'btn btn-utility', for: 'upload-input' }, 'Upload a screenshot', icon('plus')),
     ]);
   }
   if (d.status === 'downloading') return head([h('p', { class: 'muted small' }, 'Saving the image…')]);
@@ -308,10 +309,10 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
         ? h(
             'div',
             { class: 'result-row' },
-            h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save this look'),
-            h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, 'Try another'),
+            h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, icon(saved ? 'heartFilled' : 'heart'), saved ? 'Saved' : 'Save this look'),
+            h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, icon('refresh'), 'Try another'),
           )
-        : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together'),
+        : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
     ),
     h(
       'section',
@@ -353,7 +354,7 @@ export function cabineView(s: ViewState, a: Actions): HTMLElement {
     h(
       'div',
       { class: 'page-section' },
-      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), items.length > 0 && !s.phone && h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-secondary btn-small', onclick: a.usePhone }, 'Use your phone'), h('label', { class: 'text-button small', for: 'upload-input' }, 'Upload'))),
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), items.length > 0 && !s.phone && h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-secondary btn-small', onclick: a.usePhone }, icon('phone'), 'Use your phone'), h('label', { class: 'btn btn-utility btn-small', for: 'upload-input' }, 'Upload', icon('plus')))),
       ...(items.length === 0
         ? [closetEmpty(s, a)]
         : [
@@ -405,7 +406,7 @@ function closetEmpty(s: ViewState, a: Actions): HTMLElement {
         { class: 'empty closet-empty' },
         h('p', {}, 'Add a few pieces you actually wear.'),
         h('p', { class: 'muted small' }, 'You don’t need your whole wardrobe to get started.'),
-        h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: a.usePhone }, 'Use your phone'), h('label', { class: 'text-button small', for: 'upload-input' }, 'Upload from this device')),
+        h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: a.usePhone }, icon('phone'), 'Use your phone'), h('label', { class: 'btn btn-utility', for: 'upload-input' }, 'Upload', icon('plus'))),
       );
 }
 
@@ -420,7 +421,7 @@ function phoneCard(p: PhoneSession, a: Actions): HTMLElement {
       { class: 'phone-card', role: 'alert' },
       h('p', { class: 'phone-title' }, "Couldn't connect to your phone"),
       h('p', { class: 'muted small' }, p.error ?? 'Please try again.'),
-      actions(h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.usePhone }, 'Try again'), h('button', { type: 'button', class: 'text-button small', onclick: a.closePhone }, 'Close')),
+      actions(h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.usePhone }, icon('refresh'), 'Try again'), h('button', { type: 'button', class: 'text-button small', onclick: a.closePhone }, 'Close')),
     );
   }
   if (p.status === 'expired') {
@@ -429,7 +430,7 @@ function phoneCard(p: PhoneSession, a: Actions): HTMLElement {
       { class: 'phone-card' },
       h('p', { class: 'phone-title' }, 'This code has expired'),
       added,
-      actions(h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.usePhone }, 'Show a new code'), h('button', { type: 'button', class: 'text-button small', onclick: a.closePhone }, 'Done')),
+      actions(h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.usePhone }, icon('refresh'), 'Show a new code'), h('button', { type: 'button', class: 'text-button small', onclick: a.closePhone }, 'Done')),
     );
   }
   const minutes = Math.max(1, Math.ceil((p.expiresAt - Date.now()) / 60_000));

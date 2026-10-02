@@ -11,9 +11,10 @@
          the token in the URL is the only credential, and it can only add photos. */
       :root {
         /* Same palette as the extension (D26). */
-        --bg: #f7f3ed; --surface: #fcfaf7; --ink: #171717; --muted: #69635d; --line: #ddd7cf;
-        --accent: #7b3040; --danger: #a33a2b;
-        font: 16px/1.45 'Inter Tight', system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif; color: var(--ink);
+        /* Cabine design system (docs/decisions.md D31). */
+        --bg: #fafaf7; --surface: #ffffff; --ink: #1a1a1a; --muted: #74746f; --line: #e2e5ea;
+        --accent: #cbd8f1; --accent-hover: #dbe4f6; --accent-pressed: #b8c9ea; --danger: #a33a2b;
+        font: 16px/1.5 Inter, system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif; color: var(--ink);
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
@@ -24,32 +25,34 @@
       .brand img { display: block; height: 24px; width: auto; }
       .actions { display: grid; gap: 10px; margin: 20px 0; }
       .btn {
-        display: block; width: 100%; padding: 14px; border-radius: 6px; font: inherit; font-weight: 600; text-align: center;
-        border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer;
+        display: block; width: 100%; padding: 15px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600;
+        letter-spacing: 0.08em; text-transform: uppercase; text-align: center;
+        border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
       }
-      .btn.primary { background: var(--ink); border-color: var(--ink); color: #fbf8f2; }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--ink); box-shadow: 0 8px 18px -12px rgba(110, 140, 200, 0.9); }
+      .btn.primary:active { background: var(--accent-pressed); }
       .btn:disabled { opacity: 0.5; cursor: default; }
       .items { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; }
-      .item { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
-      .item img { width: 84px; height: 104px; object-fit: cover; border-radius: 4px; background: var(--surface); flex: none; }
+      .item { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+      .item img { width: 84px; height: 104px; object-fit: cover; border-radius: 8px; background: #f2f3f5; flex: none; }
       .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
       .chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .chip {
         font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
-        border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+        border: 1px solid var(--line); background: #fff; color: var(--ink);
       }
-      .chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
       .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .link { border: 0; background: none; color: var(--muted); text-decoration: underline; font: inherit; font-size: 14px; padding: 0; cursor: pointer; }
       .status { font-size: 14px; color: var(--muted); }
-      .status.done { color: var(--accent); }
+      .status.done { color: #4f6fae; }
       .status.failed { color: var(--danger); }
       .bar {
         position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
         background: rgba(255, 255, 255, 0.96); border-top: 1px solid var(--line);
       }
       .bar p { text-align: center; margin: 0 0 8px; font-size: 14px; }
-      .notice { padding: 14px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+      .notice { padding: 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
       [hidden] { display: none !important; }
     </style>
   </head>
