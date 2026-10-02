@@ -115,12 +115,10 @@ function typeEditor(g: Garment, a: Actions): HTMLElement {
   );
 }
 
-// While a piece's photo is being cleaned up: a hanger turning on its hook.
-const HANGER = '<svg viewBox="0 0 64 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M26 10a6 6 0 1 1 9 5.2c-1.8 1-3 2.2-3 4.3V21"/><path d="M32 21 5 37.5c-1.8 1.1-1 3.5 1 3.5h52c2 0 2.8-2.4 1-3.5z"/></g></svg>';
+// While a piece's photo is being cleaned up: the Cabine C drawing itself into
+// the hanger, the same mark as "Putting it together…" (scripts/brand-loading.py).
 function cleaningOverlay(): HTMLElement {
-  const hanger = h('span', { class: 'hanger' });
-  hanger.innerHTML = HANGER; // static markup
-  return h('span', { class: 'cleaning', role: 'status' }, hanger, h('span', { class: 'cleaning-text' }, 'Cleaning up'));
+  return h('span', { class: 'cleaning', role: 'status' }, h('img', { class: 'cleaning-mark', src: '/brand/loading.webp', alt: '' }), h('span', { class: 'cleaning-text' }, 'Cleaning up'));
 }
 
 function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick?: () => void; selected?: boolean; disabled?: string; menu?: boolean; below?: HTMLElement }): HTMLElement {

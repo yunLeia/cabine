@@ -214,14 +214,12 @@ main { padding: 0 16px; }
 .upload-menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .page-head + .chips { margin-top: 12px; }
 
-/* A piece whose photo is being cleaned up: a hanger turning on its hook. */
+/* A piece whose photo is being cleaned up: the C drawing itself into the hanger. */
 .cleaning {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   background: rgba(255, 255, 255, 0.8); border-radius: var(--radius); color: var(--ink);
 }
-.hanger { width: 34px; height: 26px; perspective: 120px; }
-.hanger svg { width: 100%; height: 100%; display: block; transform-origin: 50% 20%; animation: turn 1.6s linear infinite; }
-@keyframes turn { to { transform: rotateY(360deg); } }
+.cleaning-mark { width: 38px; height: auto; display: block; }
 .cleaning-text { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
 
 /* ---- Filters: All · Top · Bottom … ---- */
@@ -287,5 +285,5 @@ main { padding: 0 16px; }
 @keyframes rise { from { opacity: 0; transform: translate(-50%, 6px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .render-img.reveal, .running-title, .picked-main, .hanger svg { animation: none; }
+  .render-img.reveal, .running-title, .picked-main { animation: none; }
 }
