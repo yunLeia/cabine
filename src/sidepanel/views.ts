@@ -64,6 +64,7 @@ export interface Actions {
   setShowAll(on: boolean): void;
   usePhone(): void;
   toggleUpload(open: boolean): void;
+  chooseFile(): void;
   closePhone(): void;
   removeGarment(g: Garment): void;
 }
@@ -407,7 +408,7 @@ function uploadButton(s: ViewState, a: Actions, size = ''): HTMLElement {
         'div',
         { class: 'menu upload-menu', role: 'menu' },
         h('button', { type: 'button', role: 'menuitem', onclick: a.usePhone }, icon('phone'), 'From your phone'),
-        h('label', { role: 'menuitem', for: 'upload-input', onclick: () => a.toggleUpload(false) }, icon('plus'), 'From this computer'),
+        h('button', { type: 'button', role: 'menuitem', onclick: a.chooseFile }, icon('plus'), 'From this computer'),
       ),
   );
 }

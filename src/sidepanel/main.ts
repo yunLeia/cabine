@@ -203,6 +203,15 @@ const actions: Actions = {
     render();
   },
 
+  chooseFile() {
+    // Open the file picker first, while this click still counts as the user's
+    // gesture, then close the menu. (A <label for> here didn't work: closing the
+    // menu redraws the panel and removes the label before it can open the picker.)
+    ($('upload-input') as HTMLInputElement).click();
+    state.uploadOpen = false;
+    render();
+  },
+
   async usePhone() {
     state.uploadOpen = false;
     stopPolling();
