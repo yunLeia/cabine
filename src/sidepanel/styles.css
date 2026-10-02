@@ -3,7 +3,7 @@
    wordmark is the only serif. Pill buttons in three kinds: primary (filled
    silver blue), secondary (outlined), utility (outlined, with +). Thin line icons. */
 :root {
-  --bg: #fafaf7;          /* ivory: background */
+  --bg: #ffffff;          /* white background (kept over the board's ivory, by request) */
   --ink: #1a1a1a;         /* soft black: primary text */
   --gray: #9a9a9a;        /* warm gray: secondary marks */
   --muted: #74746f;       /* secondary text (warm gray, darkened to stay readable) */
@@ -79,7 +79,7 @@ p { margin: 0; }
 #header { position: sticky; top: 0; z-index: 10; }
 .app-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px; background: rgba(250, 250, 247, 0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
 }
 .app-header nav { display: flex; gap: 18px; }
 .nav {
@@ -154,7 +154,7 @@ main { padding: 0 16px; }
     radial-gradient(circle at 20% 20%, rgba(203, 216, 241, 0.6), transparent 45%),
     radial-gradient(circle at 78% 32%, rgba(213, 207, 241, 0.5), transparent 42%),
     radial-gradient(circle at 62% 82%, rgba(247, 225, 219, 0.55), transparent 45%),
-    rgba(250, 250, 247, 0.6);
+    rgba(255, 255, 255, 0.6);
 }
 .loading-mark { width: 64px; height: auto; margin-bottom: 6px; }
 .render-frame.running .running-title { animation: breathe 2.4s var(--ease) infinite; }

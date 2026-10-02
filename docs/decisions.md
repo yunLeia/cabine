@@ -511,7 +511,7 @@ docs/
 
 Applied from the user's design-system board to the panel, the phone upload page and the privacy page.
 - **Colours:**
-  - background: ivory #FAFAF7
+  - background: **white** (#FFFFFF). The board's ivory #FAFAF7 was tried and reverted at the user's request.
   - primary text: soft black #1A1A1A
   - secondary: warm gray #9A9A9A; for small text it's darkened to #74746F so it stays readable
   - **accent: silver blue #CBD8F1**
