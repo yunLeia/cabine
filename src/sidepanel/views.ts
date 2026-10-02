@@ -270,18 +270,10 @@ function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
 // from, kept apart: store pieces in the Fitting Room, then your own clothes.
 export function lookView(s: ViewState, a: Actions): HTMLElement {
   const worn = wornPieces(s);
-  const store = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
-  const closet = s.garments.filter((g) => g.location === 'closet');
   const shown = s.render?.key === s.lookKey && !s.cleared;
   const rendered = shown && s.render?.status === 'done';
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
-  // One filter row for both groups (as in In Cabine); every piece of the chosen kind shows.
-  const kind = (g: Garment) => s.filter === 'all' || g.category === s.filter;
-  const storeShown = store.filter(kind);
-  const mine = closet.filter(kind).sort((x, y) => y.createdAt - x.createdAt);
-  const none = h('p', { class: 'muted small' }, 'Nothing of this kind.');
-  const pick = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) });
   return h(
     'div',
     { class: 'main-page' },
@@ -299,6 +291,24 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
           )
         : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
     ),
+    lookPickers(s, a),
+  );
+}
+
+// Everything below the look: the filter row, In Fitting Room and My Closet.
+// A filter click redraws only this part (main.ts), so the look above it stays put.
+export function lookPickers(s: ViewState, a: Actions): HTMLElement {
+  const store = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
+  const closet = s.garments.filter((g) => g.location === 'closet');
+  // One filter row for both groups (as in In Cabine); every piece of the chosen kind shows.
+  const kind = (g: Garment) => s.filter === 'all' || g.category === s.filter;
+  const storeShown = store.filter(kind);
+  const mine = closet.filter(kind).sort((x, y) => y.createdAt - x.createdAt);
+  const none = h('p', { class: 'muted small' }, 'Nothing of this kind.');
+  const pick = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) });
+  return h(
+    'div',
+    { id: 'pickers' },
     store.length + closet.length > 0 && h('div', { class: 'main-filters' }, filters(s, a, [...store, ...closet])),
     h(
       'section',

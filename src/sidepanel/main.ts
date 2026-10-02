@@ -9,7 +9,7 @@ import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
-import { cabineView, candidateOf, draftView, headerView, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
+import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
 // and only changes through storage writes + onChanged. The rest is UI state.
@@ -190,7 +190,10 @@ const actions: Actions = {
 
   filter(f) {
     state.filter = f;
-    render();
+    // On the main page only the pieces below the look change; redraw just that part.
+    const part = document.getElementById('pickers');
+    if (state.view === 'look' && part) part.replaceWith(lookPickers(state, actions));
+    else render();
   },
 
   toggleUpload(open) {
