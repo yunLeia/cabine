@@ -53,7 +53,7 @@ p { margin: 0; }
 }
 .btn:active { transform: translateY(1px); }
 /* Primary: main action, high emphasis. */
-.btn-primary { background: var(--accent); color: var(--ink); box-shadow: 0 6px 16px -10px rgba(110, 140, 200, 0.9); }
+.btn-primary { background: var(--accent); color: var(--ink); box-shadow: 0 4px 10px -8px rgba(110, 140, 200, 0.55); }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:active, .btn-primary[aria-pressed='true'] { background: var(--accent-pressed); }
 .btn-primary:disabled { background: var(--surface); color: var(--gray); box-shadow: none; cursor: default; transform: none; }
