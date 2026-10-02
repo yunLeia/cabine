@@ -2,9 +2,9 @@ import '@fontsource-variable/inter-tight';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
+import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit, withCandidate } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
-import type { Category, Draft, Garment } from '../shared/types';
+import { isSaved, type Category, type Draft, type Garment, type SavedLook } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
@@ -23,6 +23,7 @@ const state: ViewState = {
   render: null,
   view: 'look',
   filter: 'all',
+  showAll: false,
   menuFor: null,
   typeFor: null,
   cleared: false,
@@ -51,18 +52,22 @@ const actions: Actions = {
       void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
     }
     const on = state.outfit[g.category] !== g.id;
-    void setOutfit(toggleInOutfit(state.outfit, g)); // a new piece of the same kind replaces the old one
+    const next = toggleInOutfit(state.outfit, g); // a new piece of the same kind replaces the old one
+    if (!keepsCandidate(next)) return; // never knock out the piece you're considering
+    void setOutfit(next);
     // Away from Your Look, say what the tap did (it changes a look you can't see).
     if (state.view !== 'look') notify(on ? 'Added to your look' : 'Taken off your look');
   },
 
   consider(g: Garment) {
-    // From the Fitting Room page: wear it, and show it in its kind on the main page.
+    // "Try with my closet": this becomes the piece in Your Look (any other store
+    // piece comes off; your clothes stay).
     state.menuFor = null;
     void trackPanel('fitting_room_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
     state.view = 'look';
-    state.filter = g.category;
-    if (state.outfit[g.category] !== g.id) void setOutfit(toggleInOutfit(state.outfit, g));
+    state.showAll = false;
+    state.filter = 'all';
+    void setOutfit(withCandidate(state.outfit, g, state.byId));
     render();
     window.scrollTo({ top: 0 });
   },
@@ -111,6 +116,7 @@ const actions: Actions = {
         }
       });
       void trackPanel('outfit_render_completed', { seconds: (Date.now() - started) / 1000, cached, pieces: garments.length });
+      void rememberLook(key, state.outfit);
       if (state.render?.key === key) setRender({ key, count: garments.length, status: 'done', imageUrl: URL.createObjectURL(blob) });
     } catch (err) {
       if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
@@ -130,13 +136,11 @@ const actions: Actions = {
   async toggleSave() {
     const key = state.lookKey;
     if (!key) return;
-    const saved = state.savedLooks.some((l) => l.key === key);
-    if (saved) {
-      await setSavedLooks(state.savedLooks.filter((l) => l.key !== key));
-    } else {
-      await setSavedLooks([...state.savedLooks, { key, outfit: { ...state.outfit }, createdAt: Date.now() }]);
-      void trackPanel('look_saved', { pieces: chainOrder(state.outfit, state.byId).length, candidateIds: chainOrder(state.outfit, state.byId).filter((g) => g.location === 'fittingRoom').map((g) => g.id) });
-    }
+    const entry = state.savedLooks.find((l) => l.key === key);
+    const saved = !!entry && isSaved(entry);
+    const rest = state.savedLooks.filter((l) => l.key !== key);
+    await setSavedLooks([...rest, { key, outfit: { ...state.outfit }, createdAt: entry?.createdAt ?? Date.now(), saved: !saved }]);
+    if (!saved) void trackPanel('look_saved', { pieces: chainOrder(state.outfit, state.byId).length, candidateIds: chainOrder(state.outfit, state.byId).filter((g) => g.location === 'fittingRoom').map((g) => g.id) });
   },
 
   openSavedLook(l) {
@@ -203,6 +207,12 @@ const actions: Actions = {
     render();
   },
 
+  setShowAll(on) {
+    state.showAll = on;
+    state.filter = 'all';
+    render();
+  },
+
   async usePhone() {
     stopPolling();
     state.phone = null;
@@ -257,10 +267,11 @@ async function saveFromDraft(d: Draft, category: Category, inferred: boolean): P
   await addGarments([g]);
   if (g.location === 'fittingRoom') {
     void trackPanel('store_item_category_selected', { itemId: g.id, category, inferred });
-    await setOutfit(toggleInOutfit(state.outfit, g)); // straight into the look, in its kind
+    await setOutfit(withCandidate(state.outfit, g, new Map([...state.byId, [g.id, g]]))); // the piece you're considering now
   } else {
     void trackPanel('closet_item_uploaded', { itemId: g.id, category, source: 'device' });
-    if (candidateOf(state)) await setOutfit(toggleInOutfit(state.outfit, g));
+    const next = toggleInOutfit(state.outfit, g);
+    if (candidateOf(state) && keepsCandidate(next)) await setOutfit(next);
     notify('Added to My Closet');
     void cleanUp(g, 'auto'); // your own photos get a clean product shot too
   }
@@ -303,6 +314,24 @@ async function runCleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void>
     void trackPanel('photo_cleanup_failed', { itemId: g.id, code: err instanceof RenderError ? err.code : 'unexpected' });
     await updateGarment(g.id, { cleanStatus: 'failed' });
   }
+}
+
+const keepsCandidate = (next: SavedLook['outfit']) => {
+  const c = candidateOf(state);
+  return !c || next[c.category] === c.id;
+};
+
+// Every look you see goes into "Recent looks" (newest first). Saved ones are
+// kept; of the rest, only the latest few.
+const KEEP_UNSAVED = 9;
+async function rememberLook(key: string, outfit: SavedLook['outfit']): Promise<void> {
+  const { savedLooks } = await loadState();
+  const old = savedLooks.find((l) => l.key === key);
+  const others = savedLooks.filter((l) => l.key !== key);
+  const next = [...others, { key, outfit: { ...outfit }, createdAt: Date.now(), saved: old ? isSaved(old) : false }];
+  const unsaved = next.filter((l) => !isSaved(l)).sort((x, y) => y.createdAt - x.createdAt);
+  const drop = new Set(unsaved.slice(KEEP_UNSAVED).map((l) => l.key));
+  await setSavedLooks(next.filter((l) => !drop.has(l.key)));
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -422,7 +451,8 @@ async function refresh(): Promise<void> {
   knownIds = new Set(stored.garments.map((g) => g.id));
   if (arrived.length) {
     state.view = 'look';
-    state.filter = arrived[arrived.length - 1].category;
+    state.showAll = false;
+    state.filter = 'all';
     state.typeFor = null;
     window.scrollTo({ top: 0 });
   }

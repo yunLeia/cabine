@@ -35,13 +35,18 @@ export interface Garment {
   createdAt: number;
 }
 
-// A look the user chose to keep ("♡ Save look"). Its picture is the local render
-// saved under `key` in IndexedDB.
+// A look you've seen (D28: "Recent looks" on the main page). Its picture is the
+// local render saved under `key` in IndexedDB. `saved` marks the ones you kept
+// with "♡ Save this look"; looks from before D28 were all saved on purpose, so
+// a missing value counts as saved.
 export interface SavedLook {
   key: string;
   outfit: Outfit;
   createdAt: number;
+  saved?: boolean;
 }
+
+export const isSaved = (l: SavedLook) => l.saved !== false;
 
 // A garment waiting for its category: just captured or uploaded, not yet in the library.
 export interface Draft {

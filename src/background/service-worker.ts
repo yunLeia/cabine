@@ -1,7 +1,7 @@
 import { domainOf, track } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { toggleInOutfit } from '../shared/outfit';
+import { withCandidate } from '../shared/outfit';
 import { addGarments, getDraft, loadState, setDraft, setOutfit } from '../shared/store';
 import type { Draft, Garment } from '../shared/types';
 
@@ -89,7 +89,7 @@ async function capture(srcUrl: string, pageUrl?: string, pageTitle?: string): Pr
   }
 }
 
-// A store capture goes straight into the look, in its (guessed) kind.
+// A store capture becomes the piece you're considering in Your Look.
 async function saveCapture(d: Draft, category: Garment['category']): Promise<void> {
   const g: Garment = {
     id: d.id,
@@ -104,7 +104,8 @@ async function saveCapture(d: Draft, category: Garment['category']): Promise<voi
     createdAt: Date.now(),
   };
   await addGarments([g]);
-  await setOutfit(toggleInOutfit((await loadState()).outfit, g));
+  const { outfit, garments } = await loadState();
+  await setOutfit(withCandidate(outfit, g, new Map(garments.map((x) => [x.id, x]))));
   await setDraft(null);
 }
 

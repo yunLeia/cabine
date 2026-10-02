@@ -20,6 +20,14 @@ export function toggleInOutfit(outfit: Outfit, g: Garment): Outfit {
   return next;
 }
 
+// Your Look is about one store piece at a time (D28): trying a new one takes
+// any other store piece off; your own clothes stay on unless they're the same
+// kind (or a dress/top-bottom clash).
+export function withCandidate(outfit: Outfit, g: Garment, byId: Map<string, Garment>): Outfit {
+  const own = Object.fromEntries(Object.entries(outfit).filter(([, id]) => id && byId.get(id)?.location !== 'fittingRoom')) as Outfit;
+  return own[g.category] === g.id ? own : toggleInOutfit(own, g);
+}
+
 export function removeFromOutfit(outfit: Outfit, category: Category): Outfit {
   const { [category]: _removed, ...rest } = outfit;
   return rest;

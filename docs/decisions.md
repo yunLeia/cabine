@@ -463,3 +463,22 @@ docs/
   - Exports: a transparent 40 fps WebP for the panel, plus 25 fps GIFs on white and on ivory (`docs/brand/`).
 - **Source:** the user's logo images. The monogram is cut from the wordmark, with the "a" removed where the hanger tip meets it.
 - **Not done:** a vector (SVG) logo. The assets are raster at the source's resolution (the monogram is 281 px): enough for the panel and icons, not for print.
+
+## D28. Three places, one job each
+
+- **Context:** the main grid mixed store pieces and owned clothes, with STORE badges on cards. Fitting Room also held saved looks and silently added a piece to the look on tap. The roles overlapped.
+- **Decision:**
+  - **Your Look** is one shopping decision. Top to bottom:
+    1. YOU'RE CONSIDERING: the one store piece, in its own card with a ⋯ menu.
+    2. The mannequin or the result.
+    3. WITH YOUR CLOSET: the chosen clothes, × to take off.
+    4. "See them together" (needs a piece to consider). After the result: "♡ Save this look" / "Try another".
+    5. FROM YOUR CLOSET: **owned clothes only**. Up to 8 relevant pieces first. "View all" opens the whole closet, and only then the category filters.
+    6. Recent looks: up to 3, only when there are any.
+  - **One store piece per look** (`withCandidate`): a new capture or "Try with my closet" takes any other store piece off; your clothes stay. Closet pieces that would clash (the same kind, or dress vs top/bottom) are greyed out with "You're considering a top". Taps and uploads can never knock the piece you're considering out of the look.
+  - **Fitting Room** holds store pieces only. There's no saved looks section. Each piece has an explicit "Try with my closet →" (or "In Your Look" for the current one). The ⋯ menu has: Open original page ↗ · Try with my closet · Edit category · I got this — move to My Closet · Remove.
+  - **My Closet** holds owned pieces only. When there's a piece to wear them with, a line says "Tap to wear with {piece}" and taps add or remove. Otherwise a tap opens the piece's menu; nothing surprising happens.
+  - **Recent looks** replaces Saved looks. Every look you see is remembered; "♡ Save" keeps one for good. The 9 most recent unsaved ones are kept. Looks saved before D28 count as saved.
+  - **No source badges:** the screen says where a piece comes from. STORE tags are gone. The nav shows "Fitting Room" with no count.
+- **Supersedes:** the mixed main grid of the D26 revisions, and Saved looks in the Fitting Room.
+- **Tradeoff:** comparing two store pieces side by side now means switching between them with "Try with my closet".
