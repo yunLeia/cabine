@@ -297,9 +297,15 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const rendered = shown && s.render?.status === 'done';
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
-  const mine = s.showAll
-    ? closet.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt)
-    : relevant(s, closet, candidateOf(s));
+  // One filter row for both groups (as in In Cabine). With a kind chosen, every
+  // piece of that kind shows; under "All", My Closet starts with a few relevant ones.
+  const kind = (g: Garment) => s.filter === 'all' || g.category === s.filter;
+  const storeShown = store.filter(kind);
+  const mine =
+    s.showAll || s.filter !== 'all'
+      ? closet.filter(kind).sort((x, y) => y.createdAt - x.createdAt)
+      : relevant(s, closet, candidateOf(s));
+  const none = h('p', { class: 'muted small' }, 'Nothing of this kind.');
   const pick = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) });
   return h(
     'div',
@@ -318,18 +324,19 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
           )
         : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
     ),
+    store.length + closet.length > 0 && h('div', { class: 'main-filters' }, filters(s, a, [...store, ...closet])),
     h(
       'section',
       { class: 'pick-section', 'aria-label': 'In Fitting Room' },
       h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In Fitting Room')),
-      store.length ? h('div', { class: 'grid' }, ...store.map(pick)) : h('p', { class: 'muted small' }, STORE_HINT),
+      store.length ? (storeShown.length ? h('div', { class: 'grid' }, ...storeShown.map(pick)) : none) : h('p', { class: 'muted small' }, STORE_HINT),
     ),
     h(
       'section',
       { class: 'pick-section', 'aria-label': 'My Closet' },
-      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), (s.showAll || mine.length < closet.length) && h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), s.filter === 'all' && (s.showAll || mine.length < closet.length) && h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
       ...(closet.length
-        ? [s.phone && phoneCard(s.phone, a), s.showAll && filters(s, a, closet), h('div', { class: 'grid' }, ...mine.map(pick))]
+        ? [s.phone && phoneCard(s.phone, a), mine.length ? h('div', { class: 'grid' }, ...mine.map(pick)) : none]
         : [closetEmpty(s, a)]),
     ),
   );

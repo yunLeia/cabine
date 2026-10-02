@@ -196,7 +196,6 @@ const actions: Actions = {
 
   setShowAll(on) {
     state.showAll = on;
-    state.filter = 'all';
     render();
   },
 
