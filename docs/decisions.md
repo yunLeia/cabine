@@ -527,3 +527,10 @@ Applied from the user's design-system board to the panel, the phone upload page 
 - **Selection:** a silver-blue frame with a soft blue shadow, and a ✓ in a silver-blue dot. Chosen chips and category options are filled silver blue.
 - **App icon:** the C on a soft silver-blue → ivory → cream tile, as on the board.
 - **Supersedes:** D30's pastel rainbow as the main accent (the softer gradient stays on the tabs), and D26's 6 px corners (now 10 px cards and pill controls).
+
+### D29 revision: In Cabine is a list
+
+- **In Cabine** lists what you've brought in, nothing more:
+  - Tapping a piece opens its ⋯ menu; it doesn't change your look. The "Tap a piece…" hint is gone.
+  - One filter row sits at the top, under the title. It applies to both In Fitting Room and My Closet, and its counts cover both.
+- **Upload** is one button that asks where the photos are: **From your phone** (shows the QR code) or **From this computer** (file picker). It replaces the separate "Use your phone" and "Upload" buttons, here and on the empty-closet card.

@@ -29,6 +29,7 @@ const state: ViewState = {
   cleared: false,
   notice: null,
   phone: null,
+  uploadOpen: false,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -197,7 +198,13 @@ const actions: Actions = {
     render();
   },
 
+  toggleUpload(open) {
+    state.uploadOpen = open;
+    render();
+  },
+
   async usePhone() {
+    state.uploadOpen = false;
     stopPolling();
     state.phone = null;
     render();
@@ -447,9 +454,11 @@ document.addEventListener('paste', (e) => {
   void upload(file);
 });
 
-// Close an open ⋯ menu when clicking anywhere else.
+// Close an open ⋯ menu or the Upload menu when clicking anywhere else.
 document.addEventListener('click', (e) => {
-  if (state.menuFor && !(e.target as Element).closest('.tile-wrap')) actions.toggleMenu(null);
+  const target = e.target as Element;
+  if (state.menuFor && !target.closest('.tile-wrap')) actions.toggleMenu(null);
+  if (state.uploadOpen && !target.closest('.upload-wrap')) actions.toggleUpload(false);
 });
 
 chrome.storage.local.onChanged.addListener((changes) => {

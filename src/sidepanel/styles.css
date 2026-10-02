@@ -208,6 +208,12 @@ main { padding: 0 16px; }
 .menu button:hover { background: var(--surface); }
 .menu .danger { color: var(--danger); }
 .menu.flip { right: auto; left: 4px; }
+.upload-wrap { position: relative; display: inline-block; }
+.upload-menu { top: calc(100% + 6px); right: 0; min-width: 190px; }
+.add-actions .upload-menu { right: auto; left: 0; }
+.upload-menu button, .upload-menu label { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.upload-menu label:hover { background: var(--surface); }
+.page-head + .chips { margin-top: 12px; }
 
 /* A piece whose photo is being cleaned up: a hanger turning on its hook. */
 .cleaning {

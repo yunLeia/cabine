@@ -40,6 +40,7 @@ export interface ViewState {
   cleared: boolean; // "Try another": back to the empty mannequin, pieces still chosen
   notice: string | null; // a short confirmation at the bottom
   phone: PhoneSession | null; // an open "Use your phone" QR session
+  uploadOpen: boolean; // the Upload button's "phone or this computer?" menu
 }
 
 export interface Actions {
@@ -62,6 +63,7 @@ export interface Actions {
   filter(f: Category | 'all'): void;
   setShowAll(on: boolean): void;
   usePhone(): void;
+  toggleUpload(open: boolean): void;
   closePhone(): void;
   removeGarment(g: Garment): void;
 }
@@ -334,35 +336,31 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
 // ---- In Cabine: everything you've brought in, store pieces and your own --------------
 
 export function cabineView(s: ViewState, a: Actions): HTMLElement {
+  // A list of everything you've brought in. One filter row on top applies to
+  // both groups; tapping a piece opens its menu (it doesn't change your look).
+  const kind = (g: Garment) => s.filter === 'all' || g.category === s.filter;
   const store = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
-  const items = s.garments.filter((g) => g.location === 'closet');
-  const shown = items.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
-  // Taps put pieces on or take them off the look; the line under each heading says so.
-  const piece = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g), menu: true });
+  const items = s.garments.filter((g) => g.location === 'closet').sort((x, y) => y.createdAt - x.createdAt);
+  const piece = (g: Garment) => tile(s, g, a, { menu: true });
+  const none = h('p', { class: 'muted small' }, 'Nothing of this kind.');
   return h(
     'section',
     { class: 'page' },
-    h('h2', { class: 'page-title' }, 'In Cabine'),
-    h('p', { class: 'muted small' }, 'Tap a piece to put it on your look, or tap again to take it off.'),
+    h('div', { class: 'page-head' }, h('h2', { class: 'page-title' }, 'In Cabine'), !s.phone && uploadButton(s, a, 'btn-small')),
+    store.length + items.length > 0 && filters(s, a, [...store, ...items]),
+    s.phone && phoneCard(s.phone, a),
+    s.typeFor && typeEditor(s.byId.get(s.typeFor)!, a),
     h(
       'div',
       { class: 'page-section' },
       h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In Fitting Room'), h('span', { class: 'muted small' }, store.length === 1 ? '1 piece you’re considering' : `${store.length} pieces you’re considering`)),
-      s.typeFor && store.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-      store.length ? h('div', { class: 'grid' }, ...store.map(piece)) : h('p', { class: 'muted small' }, STORE_HINT),
+      store.length ? (store.some(kind) ? h('div', { class: 'grid' }, ...store.filter(kind).map(piece)) : none) : h('p', { class: 'muted small' }, STORE_HINT),
     ),
     h(
       'div',
       { class: 'page-section' },
-      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), items.length > 0 && !s.phone && h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-secondary btn-small', onclick: a.usePhone }, icon('phone'), 'Use your phone'), h('label', { class: 'btn btn-utility btn-small', for: 'upload-input' }, 'Upload', icon('plus')))),
-      ...(items.length === 0
-        ? [closetEmpty(s, a)]
-        : [
-            s.phone && phoneCard(s.phone, a),
-            filters(s, a, items),
-            s.typeFor && items.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-            h('div', { class: 'grid' }, ...shown.map(piece)),
-          ]),
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), items.length > 0 && h('span', { class: 'muted small' }, items.length === 1 ? '1 piece' : `${items.length} pieces`)),
+      items.length ? (items.some(kind) ? h('div', { class: 'grid' }, ...items.filter(kind).map(piece)) : none) : !s.phone && closetEmpty(s, a),
     ),
   );
 }
@@ -398,6 +396,22 @@ function filters(s: ViewState, a: Actions, items: Garment[]): HTMLElement {
   );
 }
 
+// "Upload": one button that asks where the photos are, your phone (QR) or this computer.
+function uploadButton(s: ViewState, a: Actions, size = ''): HTMLElement {
+  return h(
+    'div',
+    { class: 'upload-wrap' },
+    h('button', { type: 'button', class: `btn btn-utility ${size}`, 'aria-expanded': s.uploadOpen, onclick: () => a.toggleUpload(!s.uploadOpen) }, 'Upload', icon('plus')),
+    s.uploadOpen &&
+      h(
+        'div',
+        { class: 'menu upload-menu', role: 'menu' },
+        h('button', { type: 'button', role: 'menuitem', onclick: a.usePhone }, icon('phone'), 'From your phone'),
+        h('label', { role: 'menuitem', for: 'upload-input', onclick: () => a.toggleUpload(false) }, icon('plus'), 'From this computer'),
+      ),
+  );
+}
+
 function closetEmpty(s: ViewState, a: Actions): HTMLElement {
   return s.phone
     ? phoneCard(s.phone, a)
@@ -406,7 +420,7 @@ function closetEmpty(s: ViewState, a: Actions): HTMLElement {
         { class: 'empty closet-empty' },
         h('p', {}, 'Add a few pieces you actually wear.'),
         h('p', { class: 'muted small' }, 'You don’t need your whole wardrobe to get started.'),
-        h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: a.usePhone }, icon('phone'), 'Use your phone'), h('label', { class: 'btn btn-utility', for: 'upload-input' }, 'Upload', icon('plus'))),
+        h('div', { class: 'add-actions' }, uploadButton(s, a)),
       );
 }
 
