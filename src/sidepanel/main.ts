@@ -30,6 +30,7 @@ const state: ViewState = {
   notice: null,
   phone: null,
   uploadOpen: false,
+  savedEdit: false,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -64,6 +65,7 @@ const actions: Actions = {
 
   setView(v) {
     state.view = v;
+    state.savedEdit = false;
     state.menuFor = null;
     state.typeFor = null;
     state.filter = 'all';
@@ -201,6 +203,16 @@ const actions: Actions = {
   toggleUpload(open) {
     state.uploadOpen = open;
     render();
+  },
+
+  toggleSavedEdit(on) {
+    state.savedEdit = on;
+    render();
+  },
+
+  async deleteSavedLook(l) {
+    await setSavedLooks(state.savedLooks.filter((x) => x.key !== l.key));
+    if (!state.savedLooks.some((x) => x.key !== l.key && isSaved(x))) state.savedEdit = false; // nothing left to edit
   },
 
   chooseFile() {

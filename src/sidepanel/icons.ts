@@ -11,6 +11,7 @@ const PATHS = {
   hanger: '<path d="M10 7.5a2 2 0 1 1 3 1.7c-.6.35-1 .8-1 1.5v.8"/><path d="M12 11.5 3.6 17c-.6.4-.3 1.3.4 1.3h16c.7 0 1-.9.4-1.3z"/>',
   phone: '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
   check: '<path d="M6 12.5l4 4 8-9"/>',
+  pencil: '<path d="M14.5 5.5l4 4M5 19l1-4 10-10 3 3-10 10z"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

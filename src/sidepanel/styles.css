@@ -258,10 +258,21 @@ main { padding: 0 16px; }
 .page-section { padding-top: 16px; }
 .page-section + .page-section { margin-top: 12px; border-top: 1px solid var(--line); }
 .page-section .section-head .add-actions { margin: 0; }
-.looks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; margin-top: 12px; }
-.saved-look { aspect-ratio: 3 / 4; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff; cursor: pointer; transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease); }
-.saved-look:hover { border-color: var(--accent-strong); box-shadow: 0 8px 18px -10px rgba(110, 140, 200, 0.9); }
-.saved-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.looks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; margin-top: 12px; }
+/* Saved looks are full-figure pictures: a taller box, and the whole picture shown (never cropped). */
+.saved-wrap { position: relative; }
+.saved-look { display: block; width: 100%; aspect-ratio: 2 / 3; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff; cursor: pointer; transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease); }
+.saved-look:hover:not(:disabled) { border-color: var(--accent-strong); box-shadow: 0 8px 18px -10px rgba(110, 140, 200, 0.9); }
+.saved-look:disabled { cursor: default; }
+.saved-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.editing .saved-look { animation: wobble 260ms var(--ease) both; }
+@keyframes wobble { 40% { transform: scale(0.97); } }
+.saved-delete {
+  position: absolute; top: -7px; right: -7px; width: 24px; height: 24px; padding: 0; line-height: 1; font-size: 15px;
+  border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--danger); cursor: pointer;
+  box-shadow: 0 4px 10px -6px rgba(26, 26, 26, 0.4);
+}
+.saved-delete:hover { background: #fdf3f1; border-color: #f0c9c2; }
 
 /* ---- Use your phone ---- */
 .phone-card {

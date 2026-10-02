@@ -41,6 +41,7 @@ export interface ViewState {
   notice: string | null; // a short confirmation at the bottom
   phone: PhoneSession | null; // an open "Use your phone" QR session
   uploadOpen: boolean; // the Upload button's "phone or this computer?" menu
+  savedEdit: boolean; // Saved Looks in edit mode (delete buttons showing)
 }
 
 export interface Actions {
@@ -64,6 +65,8 @@ export interface Actions {
   setShowAll(on: boolean): void;
   usePhone(): void;
   toggleUpload(open: boolean): void;
+  toggleSavedEdit(on: boolean): void;
+  deleteSavedLook(l: SavedLook): void;
   chooseFile(): void;
   closePhone(): void;
   removeGarment(g: Garment): void;
@@ -345,7 +348,8 @@ export function cabineView(s: ViewState, a: Actions): HTMLElement {
   return h(
     'section',
     { class: 'page' },
-    h('div', { class: 'page-head' }, h('h2', { class: 'page-title' }, 'In Cabine'), !s.phone && uploadButton(s, a, 'btn-small')),
+    // No page title: the tab above already says where you are.
+    h('div', { class: 'page-head' }, h('span', {}), !s.phone && uploadButton(s, a, 'btn-small')),
     store.length + items.length > 0 && filters(s, a, [...store, ...items]),
     s.phone && phoneCard(s.phone, a),
     s.typeFor && typeEditor(s.byId.get(s.typeFor)!, a),
@@ -370,13 +374,27 @@ export function savedView(s: ViewState, a: Actions): HTMLElement {
   const looks = s.savedLooks.filter(isSaved).filter((l) => imageUrl(l.key)).sort((x, y) => y.createdAt - x.createdAt);
   return h(
     'section',
-    { class: 'page' },
-    h('h2', { class: 'page-title' }, 'Saved Looks'),
+    { class: `page${s.savedEdit ? ' editing' : ''}` },
+    // "Edit" (same style as Upload) shows a delete button on every look; "Done" ends it.
+    looks.length > 0 &&
+      h(
+        'div',
+        { class: 'page-head' },
+        h('span', { class: 'muted small' }, looks.length === 1 ? '1 look' : `${looks.length} looks`),
+        h('button', { type: 'button', class: 'btn btn-utility btn-small', 'aria-pressed': s.savedEdit, onclick: () => a.toggleSavedEdit(!s.savedEdit) }, s.savedEdit ? 'Done' : 'Edit', !s.savedEdit && icon('pencil')),
+      ),
     looks.length
       ? h(
           'div',
           { class: 'looks-grid' },
-          ...looks.map((l) => h('button', { type: 'button', class: 'saved-look', 'aria-label': 'Open this look', onclick: () => a.openSavedLook(l) }, img(imageUrl(l.key), 'saved-img'))),
+          ...looks.map((l) =>
+            h(
+              'div',
+              { class: 'saved-wrap' },
+              h('button', { type: 'button', class: 'saved-look', 'aria-label': 'Open this look', disabled: s.savedEdit, onclick: () => a.openSavedLook(l) }, img(imageUrl(l.key), 'saved-img')),
+              s.savedEdit && h('button', { type: 'button', class: 'saved-delete', 'aria-label': 'Delete this look', title: 'Delete', onclick: () => a.deleteSavedLook(l) }, '×'),
+            ),
+          ),
         )
       : h('div', { class: 'empty' }, h('p', {}, 'No saved looks yet.'), h('p', { class: 'muted small' }, 'After you see a look, tap “♡ Save this look” to keep it here.')),
   );

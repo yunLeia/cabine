@@ -534,3 +534,8 @@ Applied from the user's design-system board to the panel, the phone upload page 
   - Tapping a piece opens its ⋯ menu; it doesn't change your look. The "Tap a piece…" hint is gone.
   - One filter row sits at the top, under the title. It applies to both In Fitting Room and My Closet, and its counts cover both.
 - **Upload** is one button that asks where the photos are: **From your phone** (shows the QR code) or **From this computer** (file picker). It replaces the separate "Use your phone" and "Upload" buttons, here and on the empty-closet card.
+- **No page titles** on Saved Looks and In Cabine: the highlighted tab already says where you are.
+- **Saved Looks:**
+  - Pictures sit in taller 2:3 boxes and are shown whole (contain, not cover), so the mannequin isn't cut off.
+  - **Edit** (utility style, like Upload) puts a × on every look; tapping it deletes the look at once, with no confirmation.
+  - **Done** ends editing. So does leaving the page, or deleting the last look.
