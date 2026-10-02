@@ -494,3 +494,14 @@ docs/
 - **In Cabine:** the same two groups for managing pieces. In Fitting Room has the store pieces with ⋯ menus: Open original page ↗ · Edit category · I got this — move to My Closet · Remove. My Closet has filters, Use your phone and Upload. A line under the title says that taps put a piece on the look or take it off.
 - **Saved Looks:** a grid of the looks you saved. Tapping one opens it on the main page.
 - **Removed from D28:** the one-store-piece rule, greyed-out clashing pieces, and automatic recent looks. Several store pieces can be in a look again; a new piece of the same kind replaces the old one.
+
+## D30. The brand gradient as the accent; no logo inside the panel
+
+- **No in-panel logo:** Chrome already shows the icon and "Cabine" above the side panel. The header is just tabs: **Your Look** on the left; **Saved Looks** · **In Cabine** on the right. It stays at the top while scrolling.
+- **The gradient** (mist blue #C7D8F6 → lilac #DCCDF8 → blush #F6C9D6 → peach #FFD7B8 → butter cream #FCEBB6) replaces the oxblood accent everywhere:
+  - **Tabs:** a gradient underline sweeps in on hover and stays under the current tab.
+  - **Primary button** ("See them together", "Save this look"): the gradient with ink text. On hover it shifts slowly and gains a soft glow.
+  - **Selected pieces:** a gradient frame with a soft lilac/blush glow, and a ✓ in a gradient dot.
+  - **Chosen filter chip:** the gradient. The draft card's edge is lilac. Focus rings are lilac.
+- Text stays soft black (#1A1A1A) on white. The background stays white, as decided earlier.
+- Motion is off when the system asks for reduced motion.

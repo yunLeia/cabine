@@ -451,10 +451,6 @@ function phoneCard(p: PhoneSession, a: Actions): HTMLElement {
 
 export function headerView(s: ViewState, a: Actions): HTMLElement {
   const nav = (v: View, label: string) => h('button', { type: 'button', class: 'nav', 'aria-current': s.view === v ? 'page' : undefined, onclick: () => a.setView(v) }, label);
-  return h(
-    'header',
-    { class: 'app-header' },
-    h('button', { type: 'button', class: 'brand', 'aria-label': 'Cabine', onclick: () => a.setView('look') }, h('img', { class: 'brand-mark', src: '/brand/wordmark.png', alt: 'Cabine' })),
-    h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')),
-  );
+  // No logo here: Chrome already shows the icon and "Cabine" above the panel.
+  return h('header', { class: 'app-header' }, h('nav', {}, nav('look', 'Your Look')), h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')));
 }

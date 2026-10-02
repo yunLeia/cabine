@@ -1,12 +1,19 @@
 /* Cabine panel (D26): a quiet fitting room beside the store. Warm paper, ink,
-   one oxblood accent for "this piece" and what's selected. No pills, no glow. */
+   The brand gradient (mist blue → lilac → blush → peach → butter cream) marks
+   what's selected and the main action; everything else stays ink on white. */
 :root {
   --paper: #ffffff;
   --surface: #f5f2ec;
-  --ink: #171717;
+  --ink: #1a1a1a;
   --muted: #69635d;
   --line: #ddd7cf;
-  --oxblood: #7b3040;
+  --mist: #c7d8f6;
+  --soft-lilac: #dccdf8;
+  --blush: #f6c9d6;
+  --peach: #ffd7b8;
+  --cream: #fcebb6;
+  --grad: linear-gradient(90deg, var(--mist), var(--soft-lilac) 30%, var(--blush) 55%, var(--peach) 80%, var(--cream));
+  --grad-wide: linear-gradient(90deg, var(--mist), var(--soft-lilac), var(--blush), var(--peach), var(--cream), var(--peach), var(--blush), var(--soft-lilac), var(--mist));
   --lilac: #e5dff0;
   --peach: #f0d8cc;
   --blue: #dce6f3;
@@ -30,7 +37,7 @@ p { margin: 0; }
 .label, .eyebrow {
   margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
 }
-.eyebrow { color: var(--oxblood); }
+.eyebrow { color: var(--muted); }
 .question { font-size: 20px; font-weight: 500; line-height: 1.25; letter-spacing: -0.01em; margin: 20px 0 12px; }
 
 /* ---- Buttons ---- */
@@ -40,9 +47,9 @@ p { margin: 0; }
   font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none;
   transition: background-color 150ms var(--ease), border-color 150ms var(--ease), opacity 150ms var(--ease);
 }
-.btn-primary { background: var(--ink); color: var(--ivory); }
-.btn-primary:hover { background: #2b2b2b; }
-.btn-primary:disabled { background: var(--line); color: var(--muted); cursor: default; }
+.btn-primary { background: var(--grad-wide); background-size: 200% 100%; background-position: 0% 0; color: var(--ink); font-weight: 600; transition: background-position 600ms var(--ease), box-shadow 200ms var(--ease); }
+.btn-primary:hover { background-position: 100% 0; box-shadow: 0 4px 14px rgba(220, 205, 248, 0.6); }
+.btn-primary:disabled { background: var(--line); color: var(--muted); cursor: default; box-shadow: none; }
 .btn-secondary { background: transparent; border-color: var(--line); color: var(--ink); }
 .btn-secondary:hover { border-color: var(--ink); }
 .btn-small { padding: 5px 10px; font-size: 13px; }
@@ -52,32 +59,39 @@ p { margin: 0; }
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line);
 }
 .text-button:hover { color: var(--ink); text-decoration-color: currentColor; }
-.text-button[aria-pressed='true'] { color: var(--oxblood); text-decoration: none; }
-:focus-visible { outline: 2px solid var(--oxblood); outline-offset: 2px; }
+.text-button[aria-pressed='true'] { color: var(--ink); text-decoration: none; }
+:focus-visible { outline: 2px solid #b9a6ef; outline-offset: 2px; }
 
 /* ---- Header ---- */
+#header { position: sticky; top: 0; z-index: 10; }
 .app-header {
-  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
 }
-.brand { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
-.brand-mark { height: 22px; width: auto; display: block; }
-.loading-mark { width: 64px; height: auto; margin-bottom: 6px; }
 .app-header nav { display: flex; gap: 16px; }
 .nav {
-  border: 0; background: none; padding: 2px 0; cursor: pointer; font-size: 13px; color: var(--muted);
-  border-bottom: 1px solid transparent; display: inline-flex; align-items: center; gap: 4px;
-  transition: color 150ms var(--ease), border-color 150ms var(--ease);
+  position: relative; border: 0; background: none; padding: 4px 0; cursor: pointer; font-size: 13px; color: var(--muted);
+  transition: color 200ms var(--ease);
+}
+/* The brand gradient sweeps in under a tab on hover and stays under the current one. */
+.nav::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 3px; border-radius: 3px;
+  background: var(--grad); transform: scaleX(0); transform-origin: left; transition: transform 320ms var(--ease);
 }
 .nav:hover { color: var(--ink); }
-.nav[aria-current='page'] { color: var(--ink); border-bottom-color: var(--ink); }
+.nav:hover::after { transform: scaleX(1); }
+.nav[aria-current='page'] { color: var(--ink); font-weight: 600; }
+.nav[aria-current='page']::after { transform: scaleX(1); }
+@media (prefers-reduced-motion: reduce) { .nav::after, .btn-primary { transition: none; } }
+
+.loading-mark { width: 64px; height: auto; margin-bottom: 6px; }
 
 main { padding: 0 16px; }
 
 /* ---- Draft: a capture saving, blocked, or waiting for its type ---- */
 .draft {
   display: flex; gap: 12px; align-items: flex-start; margin: 12px 16px 0; padding: 12px;
-  background: var(--surface); border: 1px solid var(--line); border-left: 2px solid var(--oxblood); border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--soft-lilac); border-radius: var(--radius);
 }
 .draft-img { width: 64px; height: 84px; flex: none; object-fit: contain; background: var(--paper); border-radius: 4px; }
 .draft-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
@@ -88,7 +102,7 @@ main { padding: 0 16px; }
   border: 0; border-bottom: 1px solid transparent; background: none; padding: 2px 0; cursor: pointer; font-size: 13px; color: var(--ink);
 }
 .type-option:hover { border-bottom-color: var(--line); }
-.type-option[aria-pressed='true'] { color: var(--oxblood); border-bottom-color: var(--oxblood); }
+.type-option[aria-pressed='true'] { border-bottom: 2px solid transparent; border-image: var(--grad) 1; }
 .type-editor { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 
 /* ---- Your Look ---- */
@@ -128,12 +142,18 @@ main { padding: 0 16px; }
   transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease);
 }
 .tile:hover { border-color: #c4bcb2; }
-.tile[aria-pressed='true'] { border-color: var(--oxblood); box-shadow: inset 0 0 0 0.5px var(--oxblood); }
+/* Selected: a gradient frame, drawn as a border-box background behind a white padding box. */
+.tile[aria-pressed='true'] {
+  border: 2.5px solid transparent; padding: 4.5px;
+  background: linear-gradient(#fff, #fff) padding-box, var(--grad) border-box;
+  box-shadow: 0 6px 18px -6px rgba(185, 160, 240, 0.75), 0 2px 8px -4px rgba(246, 170, 190, 0.6);
+}
 .tile-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .thumb-empty { background: var(--paper); }
 .tile-check {
   position: absolute; left: 5px; top: 5px; width: 16px; height: 16px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 10px; line-height: 1; color: var(--ivory); background: var(--oxblood);
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; line-height: 1; color: var(--ink); background: var(--grad);
+  box-shadow: 0 0 0 1.5px #fff;
   opacity: 0; transform: scale(0.8); transition: opacity 160ms var(--ease), transform 160ms var(--ease);
 }
 .tile[aria-pressed='true'] .tile-check { opacity: 1; transform: none; }
@@ -174,7 +194,7 @@ main { padding: 0 16px; }
   transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
 }
 .chip:hover { border-color: var(--muted); }
-.chip[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip[aria-pressed='true'] { background: var(--grad); border-color: transparent; color: var(--ink); font-weight: 600; }
 
 /* ---- The picture: the mannequin's proportions, so the whole figure always shows ---- */
 .render-frame {
@@ -232,7 +252,7 @@ main { padding: 0 16px; }
 .phone-title { font-weight: 500; font-size: 15px; }
 .qr { width: 168px; height: 168px; margin: 6px auto; padding: 6px; background: #fff; border-radius: 4px; }
 .qr svg { width: 100%; height: 100%; display: block; }
-.phone-added { font-weight: 500; color: var(--oxblood); }
+.phone-added { font-weight: 500; color: var(--ink); }
 .phone-waiting { color: var(--muted); }
 .phone-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin-top: 6px; }
 
