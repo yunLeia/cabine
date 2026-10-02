@@ -200,7 +200,8 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
       'div',
       { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
       h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-      h('div', { class: 'frame-overlay' }, h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')),
+      // The C draws itself into the hanger while we wait (scripts/brand-loading.py).
+      h('div', { class: 'frame-overlay' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')),
     );
   }
   if (r?.status === 'error' && current) {
@@ -433,7 +434,7 @@ export function headerView(s: ViewState, a: Actions): HTMLElement {
   return h(
     'header',
     { class: 'app-header' },
-    h('button', { type: 'button', class: 'brand', onclick: () => a.setView('look') }, 'Cabine'),
+    h('button', { type: 'button', class: 'brand', 'aria-label': 'Cabine', onclick: () => a.setView('look') }, h('img', { class: 'brand-mark', src: '/brand/wordmark.png', alt: 'Cabine' })),
     h('nav', {}, nav('fittingRoom', 'Fitting Room', considering), nav('closet', 'My Closet')),
   );
 }

@@ -21,7 +21,7 @@
       p { margin: 0 0 12px; }
       .muted { color: var(--muted); }
       .small { font-size: 14px; }
-      .brand { font-weight: 700; letter-spacing: 0.02em; color: var(--muted); font-size: 14px; }
+      .brand img { display: block; height: 24px; width: auto; }
       .actions { display: grid; gap: 10px; margin: 20px 0; }
       .btn {
         display: block; width: 100%; padding: 14px; border-radius: 6px; font: inherit; font-weight: 600; text-align: center;
@@ -54,7 +54,7 @@
     </style>
   </head>
   <body>
-    <div class="brand">Cabine</div>
+    <div class="brand"><img src="/brand/wordmark.png" alt="Cabine" height="24" /></div>
     <main id="app" aria-live="polite"><p class="muted">Loading…</p></main>
     <input id="take" type="file" accept="image/*" capture="environment" hidden />
     <input id="choose" type="file" accept="image/*" multiple hidden />
