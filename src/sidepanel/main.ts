@@ -2,14 +2,14 @@ import '@fontsource-variable/inter-tight';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit, withCandidate } from '../shared/outfit';
+import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
-import { isSaved, type Category, type Draft, type Garment, type SavedLook } from '../shared/types';
+import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
-import { candidateOf, closetView, draftView, fittingRoomView, headerView, lookView, type Actions, type RenderState, type ViewState } from './views';
+import { cabineView, candidateOf, draftView, headerView, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
 // and only changes through storage writes + onChanged. The rest is UI state.
@@ -52,24 +52,9 @@ const actions: Actions = {
       void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
     }
     const on = state.outfit[g.category] !== g.id;
-    const next = toggleInOutfit(state.outfit, g); // a new piece of the same kind replaces the old one
-    if (!keepsCandidate(next)) return; // never knock out the piece you're considering
-    void setOutfit(next);
+    void setOutfit(toggleInOutfit(state.outfit, g)); // a new piece of the same kind replaces the old one
     // Away from Your Look, say what the tap did (it changes a look you can't see).
     if (state.view !== 'look') notify(on ? 'Added to your look' : 'Taken off your look');
-  },
-
-  consider(g: Garment) {
-    // "Try with my closet": this becomes the piece in Your Look (any other store
-    // piece comes off; your clothes stay).
-    state.menuFor = null;
-    void trackPanel('fitting_room_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
-    state.view = 'look';
-    state.showAll = false;
-    state.filter = 'all';
-    void setOutfit(withCandidate(state.outfit, g, state.byId));
-    render();
-    window.scrollTo({ top: 0 });
   },
 
   takeOff(g: Garment) {
@@ -116,7 +101,6 @@ const actions: Actions = {
         }
       });
       void trackPanel('outfit_render_completed', { seconds: (Date.now() - started) / 1000, cached, pieces: garments.length });
-      void rememberLook(key, state.outfit);
       if (state.render?.key === key) setRender({ key, count: garments.length, status: 'done', imageUrl: URL.createObjectURL(blob) });
     } catch (err) {
       if (!(err instanceof RenderError)) console.error('[cabine] render failed', err);
@@ -267,11 +251,10 @@ async function saveFromDraft(d: Draft, category: Category, inferred: boolean): P
   await addGarments([g]);
   if (g.location === 'fittingRoom') {
     void trackPanel('store_item_category_selected', { itemId: g.id, category, inferred });
-    await setOutfit(withCandidate(state.outfit, g, new Map([...state.byId, [g.id, g]]))); // the piece you're considering now
+    await setOutfit(toggleInOutfit(state.outfit, g)); // straight into the look, in its kind
   } else {
     void trackPanel('closet_item_uploaded', { itemId: g.id, category, source: 'device' });
-    const next = toggleInOutfit(state.outfit, g);
-    if (candidateOf(state) && keepsCandidate(next)) await setOutfit(next);
+    if (candidateOf(state)) await setOutfit(toggleInOutfit(state.outfit, g));
     notify('Added to My Closet');
     void cleanUp(g, 'auto'); // your own photos get a clean product shot too
   }
@@ -314,24 +297,6 @@ async function runCleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void>
     void trackPanel('photo_cleanup_failed', { itemId: g.id, code: err instanceof RenderError ? err.code : 'unexpected' });
     await updateGarment(g.id, { cleanStatus: 'failed' });
   }
-}
-
-const keepsCandidate = (next: SavedLook['outfit']) => {
-  const c = candidateOf(state);
-  return !c || next[c.category] === c.id;
-};
-
-// Every look you see goes into "Recent looks" (newest first). Saved ones are
-// kept; of the rest, only the latest few.
-const KEEP_UNSAVED = 9;
-async function rememberLook(key: string, outfit: SavedLook['outfit']): Promise<void> {
-  const { savedLooks } = await loadState();
-  const old = savedLooks.find((l) => l.key === key);
-  const others = savedLooks.filter((l) => l.key !== key);
-  const next = [...others, { key, outfit: { ...outfit }, createdAt: Date.now(), saved: old ? isSaved(old) : false }];
-  const unsaved = next.filter((l) => !isSaved(l)).sort((x, y) => y.createdAt - x.createdAt);
-  const drop = new Set(unsaved.slice(KEEP_UNSAVED).map((l) => l.key));
-  await setSavedLooks(next.filter((l) => !drop.has(l.key)));
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -419,7 +384,7 @@ async function upload(file: File): Promise<void> {
 function render(): void {
   $('header').replaceChildren(headerView(state, actions));
   $('draft').replaceChildren(...(state.draft ? [draftView(state.draft, actions)] : []));
-  const page = state.view === 'fittingRoom' ? fittingRoomView(state, actions) : state.view === 'closet' ? closetView(state, actions) : lookView(state, actions);
+  const page = state.view === 'cabine' ? cabineView(state, actions) : state.view === 'saved' ? savedView(state, actions) : lookView(state, actions);
   $('main').replaceChildren(page);
   $('notice').replaceChildren(...(state.notice ? [state.notice] : []));
   $('notice').hidden = !state.notice;

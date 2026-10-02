@@ -4,14 +4,15 @@ import { h } from './dom';
 import { imageUrl } from './image-urls';
 import { qrSvg, type PhoneSession } from './phone';
 
-// The panel (D28): three places with one job each, never mixed.
-//   Your Look    = one piece you're considering, with your own clothes
-//   Fitting Room = store pieces you're considering
-//   My Closet    = clothes you own
-// The screen says where a piece comes from; no source badges. Categories,
-// slots and the dress rule stay internal.
+// The panel (D29):
+//   Your Look (main) = the mannequin with what you picked, then the pieces to
+//                      pick from: In Fitting Room (store) and My Closet (yours)
+//   In Cabine        = the same two groups, to manage (menus, filters, upload)
+//   Saved Looks      = looks you kept
+// Sections say where a piece comes from; no source badges. Categories, slots
+// and the dress rule stay internal.
 
-export type View = 'look' | 'fittingRoom' | 'closet';
+export type View = 'look' | 'cabine' | 'saved';
 
 export interface RenderState {
   key: string; // the look it was made for (render.ts lookKey)
@@ -32,7 +33,7 @@ export interface ViewState {
   render: RenderState | null; // the latest render; dimmed when it's for an older look
   view: View;
   filter: Category | 'all';
-  showAll: boolean; // Your Look: the whole closet (with filters) instead of a few relevant pieces
+  showAll: boolean; // main page: the whole closet (with filters) instead of a few relevant pieces
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
   cleared: boolean; // "Try another": back to the empty mannequin, pieces still chosen
@@ -44,7 +45,6 @@ export interface Actions {
   saveDraft(category: Category): void;
   discardDraft(): void;
   pick(g: Garment): void; // put on / take off, in the current look
-  consider(g: Garment): void; // "Try with my closet": make it the piece in Your Look
   takeOff(g: Garment): void;
   setView(v: View): void;
   seeTogether(): void;
@@ -86,7 +86,7 @@ export function wornPieces(s: ViewState): Garment[] {
   });
 }
 
-// The store piece the look is about: the newest one in it.
+// The newest store piece in the look (only used to order closet suggestions).
 export function candidateOf(s: ViewState): Garment | undefined {
   return wornPieces(s)
     .filter((g) => g.location === 'fittingRoom')
@@ -151,13 +151,11 @@ function tile(s: ViewState, g: Garment, a: Actions, opts: { onclick?: () => void
 
 function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
   const store = g.location === 'fittingRoom';
-  const trying = candidateOf(s) === g;
   const item = (label: string, onclick: () => void, cls?: string) => h('button', { type: 'button', role: 'menuitem', class: cls, onclick }, label);
   return h(
     'div',
     { class: 'menu', role: 'menu' },
     store && g.sourcePageUrl && item('Open original page ↗', () => a.openOriginal(g, 'menu')),
-    store && !trying && item('Try with my closet', () => a.consider(g)),
     item('Edit category', () => a.editType(g.id)),
     store && item('I got this — move to My Closet', () => a.addToCloset(g)),
     !store && g.cleanStatus === 'failed' && item('Try the clean-up again', () => a.cleanUp(g)),
@@ -240,58 +238,26 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   );
 }
 
-// "YOU'RE CONSIDERING": the one store piece this look is about, set apart from
-// your clothes. Its ⋯ menu has the store actions.
-function candidateCard(s: ViewState, a: Actions, g: Garment | undefined, considering: Garment[]): HTMLElement {
-  if (!g) {
-    return h(
-      'div',
-      { class: 'candidate empty' },
-      h('p', {}, 'Nothing yet.'),
-      h('p', { class: 'muted small' }, STORE_HINT),
-      considering.length > 0 && h('button', { type: 'button', class: 'text-button small', onclick: () => a.setView('fittingRoom') }, `Or pick one from your Fitting Room (${considering.length}) →`),
-    );
-  }
+// The pieces you picked, stacked down the right of the mannequin, head to toe.
+// Only what's chosen: no empty boxes asking to be filled. × takes one off.
+// The column is always there, so the mannequin doesn't jump when the first
+// piece arrives.
+function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   return h(
-    'div',
-    { class: 'candidate tile-wrap' },
-    img(imageUrl(g.imageId), 'candidate-img', name(g)),
-    h(
-      'div',
-      { class: 'candidate-body' },
-      h('strong', { class: 'candidate-title', title: name(g) }, name(g)),
-      h('span', { class: 'muted small' }, CATEGORY_LABEL[g.category]),
-      s.typeFor === g.id && typeEditor(g, a),
+    'ul',
+    { class: 'picked' },
+    ...worn.map((g) =>
+      h(
+        'li',
+        { class: 'picked-piece' },
+        h('span', { class: 'picked-main', title: name(g) }, img(thumbSrc(g), 'picked-img', name(g))),
+        h('button', { type: 'button', class: 'picked-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
+      ),
     ),
-    h('button', { type: 'button', class: 'tile-more', 'aria-label': `More for ${name(g)}`, 'aria-expanded': s.menuFor === g.id, onclick: () => a.toggleMenu(s.menuFor === g.id ? null : g.id) }, '⋯'),
-    s.menuFor === g.id && itemMenu(s, g, a),
   );
 }
 
-// "WITH YOUR CLOSET": the clothes you've picked to wear with it.
-function withYourCloset(s: ViewState, a: Actions, mine: Garment[]): HTMLElement {
-  return h(
-    'div',
-    { class: 'with' },
-    h('p', { class: 'label' }, 'With your closet'),
-    mine.length
-      ? h(
-          'ul',
-          { class: 'picked' },
-          ...mine.map((g) =>
-            h(
-              'li',
-              { class: 'picked-piece' },
-              h('span', { class: 'picked-main', title: name(g) }, img(thumbSrc(g), 'picked-img', name(g))),
-              h('button', { type: 'button', class: 'picked-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
-            ),
-          ),
-        )
-      : h('p', { class: 'muted small' }, 'Pick something below.'),
-  );
-}
-
-// What tends to go with the piece you're considering. The user never sees these rules.
+// What tends to go with the newest store piece in the look (internal; never shown).
 const GOES_WITH: Record<Category, Category[]> = {
   top: ['bottom', 'outerwear', 'shoes'],
   bottom: ['top', 'outerwear', 'shoes'],
@@ -299,16 +265,14 @@ const GOES_WITH: Record<Category, Category[]> = {
   dress: ['outerwear', 'shoes'],
   shoes: ['top', 'bottom', 'dress', 'outerwear'],
 };
-// Kinds you can't wear with it: the same kind, or a dress against a top or bottom.
-const CLASHES: Record<Category, Category[]> = { top: ['top', 'dress'], bottom: ['bottom', 'dress'], dress: ['dress', 'top', 'bottom'], outerwear: ['outerwear'], shoes: ['shoes'] };
 const RELEVANT = 8;
 
 // A few relevant closet pieces: the most recently used of each kind that goes
-// with the piece, taken in turns so every kind shows up. Pieces you've picked
-// always stay in view. The order only changes when you see a look, so tiles
-// never jump while you pick.
-export function relevant(s: ViewState, closet: Garment[], candidate: Garment | undefined): Garment[] {
-  const kinds = candidate ? GOES_WITH[candidate.category] : LOOK_ORDER;
+// with the store piece in the look, taken in turns so every kind shows up.
+// Pieces you've picked always stay in view. The order only changes when you
+// see a look, so tiles never jump while you pick.
+export function relevant(s: ViewState, closet: Garment[], store: Garment | undefined): Garment[] {
+  const kinds = store ? GOES_WITH[store.category] : LOOK_ORDER;
   const recent = (x: Garment, y: Garment) => (y.lastUsedAt ?? y.createdAt) - (x.lastUsedAt ?? x.createdAt);
   const queues = kinds.map((k) => closet.filter((g) => g.category === k).sort(recent));
   const out: Garment[] = [];
@@ -318,62 +282,20 @@ export function relevant(s: ViewState, closet: Garment[], candidate: Garment | u
   return [...out, ...closet.filter((g) => inLook(s, g) && !out.includes(g))];
 }
 
-// "FROM YOUR CLOSET": your clothes only. A few relevant ones first; "View all"
-// opens the whole closet with filters.
-function fromYourCloset(s: ViewState, a: Actions, closet: Garment[], candidate: Garment | undefined): HTMLElement {
-  if (!closet.length) return closetEmpty(s, a);
-  const clash = candidate ? CLASHES[candidate.category] : [];
-  const shown = s.showAll
-    ? closet.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt)
-    : relevant(s, closet, candidate);
-  return h(
-    'section',
-    { class: 'from-closet', 'aria-label': 'From your closet' },
-    h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'From your closet'), h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
-    s.phone && phoneCard(s.phone, a),
-    s.showAll && filters(s, a, closet),
-    s.typeFor && closet.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-    h(
-      'div',
-      { class: 'grid' },
-      ...shown.map((g) =>
-        clash.includes(g.category) && candidate
-          ? tile(s, g, a, { onclick: () => {}, disabled: `You're considering a ${CATEGORY_LABEL[candidate.category].toLowerCase()}` })
-          : tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) }),
-      ),
-    ),
-  );
-}
-
-// "Recent looks": the last few looks you've seen, newest first. Outputs, not pieces.
-function recentLooks(s: ViewState, a: Actions): HTMLElement | null {
-  const looks = [...s.savedLooks].sort((x, y) => y.createdAt - x.createdAt).filter((l) => imageUrl(l.key)).slice(0, 3);
-  if (!looks.length) return null;
-  return h(
-    'section',
-    { class: 'recent', 'aria-label': 'Recent looks' },
-    h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'Recent looks')),
-    h(
-      'div',
-      { class: 'recent-strip' },
-      ...looks.map((l) =>
-        h('button', { type: 'button', class: 'recent-look', 'aria-label': 'Open this look', onclick: () => a.openSavedLook(l) }, img(imageUrl(l.key), 'recent-img'), isSaved(l) && h('span', { class: 'recent-saved', 'aria-label': 'Saved' }, '♥')),
-      ),
-    ),
-  );
-}
-
-// The main page: one shopping decision at a time.
+// The main page: the look (mannequin + picked pieces), then what you can pick
+// from, kept apart: store pieces in the Fitting Room, then your own clothes.
 export function lookView(s: ViewState, a: Actions): HTMLElement {
-  const candidate = candidateOf(s);
   const worn = wornPieces(s);
-  const mine = worn.filter((g) => g.location === 'closet');
+  const store = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
   const closet = s.garments.filter((g) => g.location === 'closet');
-  const considering = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass');
   const shown = s.render?.key === s.lookKey && !s.cleared;
   const rendered = shown && s.render?.status === 'done';
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
+  const mine = s.showAll
+    ? closet.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt)
+    : relevant(s, closet, candidateOf(s));
+  const pick = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) });
   return h(
     'div',
     { class: 'main-page' },
@@ -381,10 +303,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
       'section',
       { class: 'look', 'aria-label': 'Your Look' },
       h('h2', { class: 'label look-title' }, 'Your Look'),
-      h('p', { class: 'label sub' }, 'You’re considering'),
-      candidateCard(s, a, candidate, considering),
-      lookFrame(s, a, worn),
-      withYourCloset(s, a, mine),
+      h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)),
       rendered
         ? h(
             'div',
@@ -392,43 +311,78 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
             h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, saved ? '♥ Saved' : '♡ Save this look'),
             h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, 'Try another'),
           )
-        : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: !candidate, onclick: a.seeTogether }, 'See them together'),
+        : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together'),
     ),
-    fromYourCloset(s, a, closet, candidate),
-    recentLooks(s, a),
+    h(
+      'section',
+      { class: 'pick-section', 'aria-label': 'In Fitting Room' },
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In Fitting Room')),
+      store.length ? h('div', { class: 'strip' }, ...store.map(pick)) : h('p', { class: 'muted small' }, STORE_HINT),
+    ),
+    h(
+      'section',
+      { class: 'pick-section', 'aria-label': 'My Closet' },
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), (s.showAll || mine.length < closet.length) && h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
+      ...(closet.length
+        ? [s.phone && phoneCard(s.phone, a), s.showAll && filters(s, a, closet), h('div', { class: 'grid' }, ...mine.map(pick))]
+        : [closetEmpty(s, a)]),
+    ),
   );
 }
 
-// ---- Fitting Room: store pieces you're considering ---------------------------------
+// ---- In Cabine: everything you've brought in, store pieces and your own --------------
 
-export function fittingRoomView(s: ViewState, a: Actions): HTMLElement {
-  const pieces = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
-  const trying = candidateOf(s);
+export function cabineView(s: ViewState, a: Actions): HTMLElement {
+  const store = s.garments.filter((g) => g.location === 'fittingRoom' && g.decision !== 'pass').sort((x, y) => y.createdAt - x.createdAt);
+  const items = s.garments.filter((g) => g.location === 'closet');
+  const shown = items.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
+  // Taps put pieces on or take them off the look; the line under each heading says so.
+  const piece = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g), menu: true });
   return h(
     'section',
     { class: 'page' },
-    h('h2', { class: 'page-title' }, 'Fitting Room'),
-    h('p', { class: 'muted small' }, pieces.length === 1 ? '1 piece you’re considering' : `${pieces.length} pieces you’re considering`),
-    s.typeFor && pieces.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-    pieces.length
-      ? h(
-          'div',
-          { class: 'grid roomy' },
-          ...pieces.map((g) =>
-            tile(s, g, a, {
-              menu: true,
-              below:
-                g === trying
-                  ? h('p', { class: 'tile-action muted small' }, 'In Your Look')
-                  : h('button', { type: 'button', class: 'tile-action text-button small', onclick: () => a.consider(g) }, 'Try with my closet →'),
-            }),
-          ),
-        )
-      : h('div', { class: 'empty' }, h('p', {}, 'Nothing here yet.'), h('p', { class: 'muted small' }, STORE_HINT)),
+    h('h2', { class: 'page-title' }, 'In Cabine'),
+    h('p', { class: 'muted small' }, 'Tap a piece to put it on your look, or tap again to take it off.'),
+    h(
+      'div',
+      { class: 'page-section' },
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In Fitting Room'), h('span', { class: 'muted small' }, store.length === 1 ? '1 piece you’re considering' : `${store.length} pieces you’re considering`)),
+      s.typeFor && store.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
+      store.length ? h('div', { class: 'grid' }, ...store.map(piece)) : h('p', { class: 'muted small' }, STORE_HINT),
+    ),
+    h(
+      'div',
+      { class: 'page-section' },
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), items.length > 0 && !s.phone && h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-secondary btn-small', onclick: a.usePhone }, 'Use your phone'), h('label', { class: 'text-button small', for: 'upload-input' }, 'Upload'))),
+      ...(items.length === 0
+        ? [closetEmpty(s, a)]
+        : [
+            s.phone && phoneCard(s.phone, a),
+            filters(s, a, items),
+            s.typeFor && items.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
+            h('div', { class: 'grid' }, ...shown.map(piece)),
+          ]),
+    ),
   );
 }
 
-// ---- My Closet: clothes you own ----------------------------------------------------
+// ---- Saved Looks -------------------------------------------------------------------
+
+export function savedView(s: ViewState, a: Actions): HTMLElement {
+  const looks = s.savedLooks.filter(isSaved).filter((l) => imageUrl(l.key)).sort((x, y) => y.createdAt - x.createdAt);
+  return h(
+    'section',
+    { class: 'page' },
+    h('h2', { class: 'page-title' }, 'Saved Looks'),
+    looks.length
+      ? h(
+          'div',
+          { class: 'looks-grid' },
+          ...looks.map((l) => h('button', { type: 'button', class: 'saved-look', 'aria-label': 'Open this look', onclick: () => a.openSavedLook(l) }, img(imageUrl(l.key), 'saved-img'))),
+        )
+      : h('div', { class: 'empty' }, h('p', {}, 'No saved looks yet.'), h('p', { class: 'muted small' }, 'After you see a look, tap “♡ Save this look” to keep it here.')),
+  );
+}
 
 // All 9 · Top 5 · Bottom 3 … (only kinds you have).
 function filters(s: ViewState, a: Actions, items: Garment[]): HTMLElement {
@@ -453,36 +407,6 @@ function closetEmpty(s: ViewState, a: Actions): HTMLElement {
         h('p', { class: 'muted small' }, 'You don’t need your whole wardrobe to get started.'),
         h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: a.usePhone }, 'Use your phone'), h('label', { class: 'text-button small', for: 'upload-input' }, 'Upload from this device')),
       );
-}
-
-export function closetView(s: ViewState, a: Actions): HTMLElement {
-  const items = s.garments.filter((g) => g.location === 'closet');
-  const shown = items.filter((g) => s.filter === 'all' || g.category === s.filter).sort((x, y) => y.createdAt - x.createdAt);
-  const candidate = candidateOf(s);
-  const clash = candidate ? CLASHES[candidate.category] : [];
-  return h(
-    'section',
-    { class: 'page' },
-    h('div', { class: 'page-head' }, h('h2', { class: 'page-title' }, 'My Closet'), items.length > 0 && !s.phone && h('div', { class: 'add-actions' }, h('button', { type: 'button', class: 'btn btn-secondary btn-small', onclick: a.usePhone }, 'Use your phone'), h('label', { class: 'text-button small', for: 'upload-input' }, 'Upload'))),
-    ...(items.length === 0
-      ? [closetEmpty(s, a)]
-      : [
-          s.phone && phoneCard(s.phone, a),
-          filters(s, a, items),
-          // Taps only change the look when there's a piece to wear these with, and the page says so.
-          candidate && h('p', { class: 'context muted small' }, `Tap to wear with ${name(candidate)}`),
-          s.typeFor && items.some((g) => g.id === s.typeFor) && typeEditor(s.byId.get(s.typeFor)!, a),
-          h(
-            'div',
-            { class: 'grid' },
-            ...shown.map((g) =>
-              candidate && !clash.includes(g.category)
-                ? tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g), menu: true })
-                : tile(s, g, a, { menu: true }),
-            ),
-          ),
-        ]),
-  );
 }
 
 // ---- Use your phone -----------------------------------------------------------------
@@ -531,6 +455,6 @@ export function headerView(s: ViewState, a: Actions): HTMLElement {
     'header',
     { class: 'app-header' },
     h('button', { type: 'button', class: 'brand', 'aria-label': 'Cabine', onclick: () => a.setView('look') }, h('img', { class: 'brand-mark', src: '/brand/wordmark.png', alt: 'Cabine' })),
-    h('nav', {}, nav('fittingRoom', 'Fitting Room'), nav('closet', 'My Closet')),
+    h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')),
   );
 }

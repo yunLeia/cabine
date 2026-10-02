@@ -482,3 +482,15 @@ docs/
   - **No source badges:** the screen says where a piece comes from. STORE tags are gone. The nav shows "Fitting Room" with no count.
 - **Supersedes:** the mixed main grid of the D26 revisions, and Saved looks in the Fitting Room.
 - **Tradeoff:** comparing two store pieces side by side now means switching between them with "Try with my closet".
+
+## D29. Saved Looks · In Cabine (replaces D28's layout)
+
+- **Decided by the user after trying D28:** drop "You're considering". Navigation is **Saved Looks** and **In Cabine**.
+- **Main page:**
+  - The mannequin, with the picked pieces stacked vertically to its right (as in D26 revision 5), then "See them together".
+  - After the result: "♡ Save this look" / "Try another".
+  - Below: **In Fitting Room**, a horizontal strip of store pieces, then **My Closet**, owned pieces only. My Closet shows up to 8 relevant ones; "View all" (shown whenever any are hidden) opens the rest with filters.
+  - Store and owned pieces are never in one grid. The section headings say where pieces come from; no badges.
+- **In Cabine:** the same two groups for managing pieces. In Fitting Room has the store pieces with ⋯ menus: Open original page ↗ · Edit category · I got this — move to My Closet · Remove. My Closet has filters, Use your phone and Upload. A line under the title says that taps put a piece on the look or take it off.
+- **Saved Looks:** a grid of the looks you saved. Tapping one opens it on the main page.
+- **Removed from D28:** the one-store-piece rule, greyed-out clashing pieces, and automatic recent looks. Several store pieces can be in a look again; a new piece of the same kind replaces the old one.
