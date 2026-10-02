@@ -348,9 +348,9 @@ export function cabineView(s: ViewState, a: Actions): HTMLElement {
   return h(
     'section',
     { class: 'page' },
-    // No page title: the tab above already says where you are.
-    h('div', { class: 'page-head' }, h('span', {}), !s.phone && uploadButton(s, a, 'btn-small')),
-    store.length + items.length > 0 && filters(s, a, [...store, ...items]),
+    // No page title: the tab above already says where you are. Filters and
+    // Upload share the top row; Upload is the page's main action.
+    h('div', { class: 'toolbar' }, store.length + items.length > 0 ? filters(s, a, [...store, ...items]) : h('span', {}), !s.phone && uploadButton(s, a, 'btn-primary')),
     s.phone && phoneCard(s.phone, a),
     s.typeFor && typeEditor(s.byId.get(s.typeFor)!, a),
     h(
@@ -414,11 +414,11 @@ function filters(s: ViewState, a: Actions, items: Garment[]): HTMLElement {
 }
 
 // "Upload": one button that asks where the photos are, your phone (QR) or this computer.
-function uploadButton(s: ViewState, a: Actions, size = ''): HTMLElement {
+function uploadButton(s: ViewState, a: Actions, kind = 'btn-utility'): HTMLElement {
   return h(
     'div',
     { class: 'upload-wrap' },
-    h('button', { type: 'button', class: `btn btn-utility ${size}`, 'aria-expanded': s.uploadOpen, onclick: () => a.toggleUpload(!s.uploadOpen) }, 'Upload', icon('plus')),
+    h('button', { type: 'button', class: `btn ${kind}`, 'aria-expanded': s.uploadOpen, onclick: () => a.toggleUpload(!s.uploadOpen) }, 'Upload', icon('plus')),
     s.uploadOpen &&
       h(
         'div',
