@@ -133,8 +133,8 @@ main { padding: 0 16px; }
 .picked-main {
   width: 100%; height: 100%; padding: 4px; display: block;
   background: #fff; border: 1px solid var(--line); border-radius: 8px;
-  animation: place 200ms var(--ease) both;
 }
+.picked-piece.new .picked-main { animation: place 200ms var(--ease) both; }
 @keyframes place { from { opacity: 0; transform: translateY(4px); } }
 .picked-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .picked-off {

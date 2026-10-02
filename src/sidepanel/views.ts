@@ -34,7 +34,6 @@ export interface ViewState {
   render: RenderState | null; // the latest render; dimmed when it's for an older look
   view: View;
   filter: Category | 'all';
-  showAll: boolean; // main page: the whole closet (with filters) instead of a few relevant pieces
   menuFor: string | null; // garment whose ⋯ menu is open
   typeFor: string | null; // garment whose type is being corrected
   cleared: boolean; // "Try another": back to the empty mannequin, pieces still chosen
@@ -62,7 +61,6 @@ export interface Actions {
   cleanUp(g: Garment): void;
   useOriginal(g: Garment): void;
   filter(f: Category | 'all'): void;
-  setShowAll(on: boolean): void;
   usePhone(): void;
   toggleUpload(open: boolean): void;
   toggleSavedEdit(on: boolean): void;
@@ -247,44 +245,25 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
 // Only what's chosen: no empty boxes asking to be filled. × takes one off.
 // The column is always there, so the mannequin doesn't jump when the first
 // piece arrives.
+// The panel is redrawn on every change (a filter, a menu…); only a piece that
+// just joined the look plays the drop-in animation, so nothing else seems to reload.
+const placed = new Set<string>();
 function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  const fresh = new Set(worn.filter((g) => !placed.has(g.id)).map((g) => g.id));
+  placed.clear();
+  worn.forEach((g) => placed.add(g.id));
   return h(
     'ul',
     { class: 'picked' },
     ...worn.map((g) =>
       h(
         'li',
-        { class: 'picked-piece' },
+        { class: fresh.has(g.id) ? 'picked-piece new' : 'picked-piece' },
         h('span', { class: 'picked-main', title: name(g) }, img(thumbSrc(g), 'picked-img', name(g))),
         h('button', { type: 'button', class: 'picked-off', 'aria-label': `Take off ${name(g)}`, title: 'Take off', onclick: () => a.takeOff(g) }, '×'),
       ),
     ),
   );
-}
-
-// What tends to go with the newest store piece in the look (internal; never shown).
-const GOES_WITH: Record<Category, Category[]> = {
-  top: ['bottom', 'outerwear', 'shoes'],
-  bottom: ['top', 'outerwear', 'shoes'],
-  outerwear: ['top', 'bottom', 'dress', 'shoes'],
-  dress: ['outerwear', 'shoes'],
-  shoes: ['top', 'bottom', 'dress', 'outerwear'],
-};
-const RELEVANT = 8;
-
-// A few relevant closet pieces: the most recently used of each kind that goes
-// with the store piece in the look, taken in turns so every kind shows up.
-// Pieces you've picked always stay in view. The order only changes when you
-// see a look, so tiles never jump while you pick.
-export function relevant(s: ViewState, closet: Garment[], store: Garment | undefined): Garment[] {
-  const kinds = store ? GOES_WITH[store.category] : LOOK_ORDER;
-  const recent = (x: Garment, y: Garment) => (y.lastUsedAt ?? y.createdAt) - (x.lastUsedAt ?? x.createdAt);
-  const queues = kinds.map((k) => closet.filter((g) => g.category === k).sort(recent));
-  const out: Garment[] = [];
-  while (out.length < RELEVANT && queues.some((q) => q.length)) {
-    for (const q of queues) if (q.length && out.length < RELEVANT) out.push(q.shift()!);
-  }
-  return [...out, ...closet.filter((g) => inLook(s, g) && !out.includes(g))];
 }
 
 // The main page: the look (mannequin + picked pieces), then what you can pick
@@ -297,14 +276,10 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const rendered = shown && s.render?.status === 'done';
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
-  // One filter row for both groups (as in In Cabine). With a kind chosen, every
-  // piece of that kind shows; under "All", My Closet starts with a few relevant ones.
+  // One filter row for both groups (as in In Cabine); every piece of the chosen kind shows.
   const kind = (g: Garment) => s.filter === 'all' || g.category === s.filter;
   const storeShown = store.filter(kind);
-  const mine =
-    s.showAll || s.filter !== 'all'
-      ? closet.filter(kind).sort((x, y) => y.createdAt - x.createdAt)
-      : relevant(s, closet, candidateOf(s));
+  const mine = closet.filter(kind).sort((x, y) => y.createdAt - x.createdAt);
   const none = h('p', { class: 'muted small' }, 'Nothing of this kind.');
   const pick = (g: Garment) => tile(s, g, a, { onclick: () => a.pick(g), selected: inLook(s, g) });
   return h(
@@ -334,7 +309,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     h(
       'section',
       { class: 'pick-section', 'aria-label': 'My Closet' },
-      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet'), s.filter === 'all' && (s.showAll || mine.length < closet.length) && h('button', { type: 'button', class: 'text-button small', onclick: () => a.setShowAll(!s.showAll) }, s.showAll ? 'Show fewer' : 'View all')),
+      h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'My Closet')),
       ...(closet.length
         ? [s.phone && phoneCard(s.phone, a), mine.length ? h('div', { class: 'grid' }, ...mine.map(pick)) : none]
         : [closetEmpty(s, a)]),

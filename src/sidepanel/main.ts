@@ -23,7 +23,6 @@ const state: ViewState = {
   render: null,
   view: 'look',
   filter: 'all',
-  showAll: false,
   menuFor: null,
   typeFor: null,
   cleared: false,
@@ -191,11 +190,6 @@ const actions: Actions = {
 
   filter(f) {
     state.filter = f;
-    render();
-  },
-
-  setShowAll(on) {
-    state.showAll = on;
     render();
   },
 
@@ -443,7 +437,6 @@ async function refresh(): Promise<void> {
   knownIds = new Set(stored.garments.map((g) => g.id));
   if (arrived.length) {
     state.view = 'look';
-    state.showAll = false;
     state.filter = 'all';
     state.typeFor = null;
     window.scrollTo({ top: 0 });
