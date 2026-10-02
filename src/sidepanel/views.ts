@@ -322,7 +322,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
       'section',
       { class: 'pick-section', 'aria-label': 'In Fitting Room' },
       h('div', { class: 'section-head' }, h('span', { class: 'label' }, 'In Fitting Room')),
-      store.length ? h('div', { class: 'strip' }, ...store.map(pick)) : h('p', { class: 'muted small' }, STORE_HINT),
+      store.length ? h('div', { class: 'grid' }, ...store.map(pick)) : h('p', { class: 'muted small' }, STORE_HINT),
     ),
     h(
       'section',
