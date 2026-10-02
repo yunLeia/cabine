@@ -451,6 +451,11 @@ function phoneCard(p: PhoneSession, a: Actions): HTMLElement {
 
 export function headerView(s: ViewState, a: Actions): HTMLElement {
   const nav = (v: View, label: string) => h('button', { type: 'button', class: 'nav', 'aria-current': s.view === v ? 'page' : undefined, onclick: () => a.setView(v) }, label);
-  // No logo here: Chrome already shows the icon and "Cabine" above the panel.
-  return h('header', { class: 'app-header' }, h('nav', {}, nav('look', 'Your Look')), h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')));
+  // The wordmark is the way home (Your Look); it gets the same gradient underline as the tabs.
+  const home = h(
+    'button',
+    { type: 'button', class: 'nav brand', 'aria-label': 'Your Look', 'aria-current': s.view === 'look' ? 'page' : undefined, onclick: () => a.setView('look') },
+    h('img', { class: 'brand-mark', src: '/brand/wordmark.png', alt: 'Cabine' }),
+  );
+  return h('header', { class: 'app-header' }, home, h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')));
 }

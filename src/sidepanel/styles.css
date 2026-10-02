@@ -82,6 +82,8 @@ p { margin: 0; }
 .nav:hover::after { transform: scaleX(1); }
 .nav[aria-current='page'] { color: var(--ink); font-weight: 600; }
 .nav[aria-current='page']::after { transform: scaleX(1); }
+.nav.brand { padding: 2px 0 4px; line-height: 0; }
+.brand-mark { height: 20px; width: auto; display: block; }
 @media (prefers-reduced-motion: reduce) { .nav::after, .btn-primary { transition: none; } }
 
 .loading-mark { width: 64px; height: auto; margin-bottom: 6px; }

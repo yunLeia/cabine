@@ -497,7 +497,8 @@ docs/
 
 ## D30. The brand gradient as the accent; no logo inside the panel
 
-- **No in-panel logo:** Chrome already shows the icon and "Cabine" above the side panel. The header is just tabs: **Your Look** on the left; **Saved Looks** · **In Cabine** on the right. It stays at the top while scrolling.
+- **Header:** the Cabine wordmark sits on the left and takes you to Your Look. It gets the same gradient underline when that page is current. **Saved Looks** · **In Cabine** sit on the right. The header stays at the top while scrolling.
+  - Chrome's own title bar above the panel (icon + "Cabine" in the system font) can't be restyled, hidden or replaced by an extension. The wordmark is the brand inside the panel.
 - **The gradient** (mist blue #C7D8F6 → lilac #DCCDF8 → blush #F6C9D6 → peach #FFD7B8 → butter cream #FCEBB6) replaces the oxblood accent everywhere:
   - **Tabs:** a gradient underline sweeps in on hover and stays under the current tab.
   - **Primary button** ("See them together", "Save this look"): the gradient with ink text. On hover it shifts slowly and gains a soft glow.
