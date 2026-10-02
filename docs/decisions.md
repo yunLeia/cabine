@@ -449,3 +449,16 @@ docs/
 - The vertical OUTER / TOP / BOTTOM / SHOES rail is gone: empty category boxes read as "fill every slot".
 - In its place, a column to the right of the mannequin shows only the chosen pieces, stacked head to toe. Each has × to take it off and an oxblood edge for store pieces; tapping one switches the chips to its kind. The column is always reserved, so the mannequin doesn't shift when the first piece arrives.
   - A horizontal row under the mannequin was tried first; the user preferred the column.
+
+## D27. Brand: the C-and-hanger mark
+
+- **Wordmark:** "Cabine" in a high-contrast serif, with a hanger inside the C. It's in the panel header, the phone upload page and the privacy page (`public/brand/wordmark.png`, `server/public/brand/wordmark.png`).
+- **Icon:** the C monogram on the brand board's pastel gradient (mist blue → lilac → blush → peach → butter cream), as a rounded tile at 16, 32, 48 and 128 px. It replaces the placeholder hanger.
+- **Loading mark:** the C draws itself from its top tip, around and down, into its point; then the hanger's right arm grows to the neck; then the hook and the left arm finish together. It's shown above "Putting it together…".
+  - Made by `scripts/brand-loading.py`: a round "pen" follows hand-placed centrelines and reveals the real logo pixels, so the mark is exact. The finished frame matches the logo (max difference 5/255).
+  - The C and the hanger are separate layers: the hanger's thin lines are carved out of the C, never its thick stroke. That way the C's wide pen doesn't uncover the hanger early.
+  - The tip stays with the C. The hanger pens are wider than the carved zone, so there's no seam.
+  - One continuous stroke at a steady speed, eased only at the start and end.
+  - Exports: a transparent 40 fps WebP for the panel, plus 25 fps GIFs on white and on ivory (`docs/brand/`).
+- **Source:** the user's logo images. The monogram is cut from the wordmark, with the "a" removed where the hanger tip meets it.
+- **Not done:** a vector (SVG) logo. The assets are raster at the source's resolution (the monogram is 281 px): enough for the panel and icons, not for print.
