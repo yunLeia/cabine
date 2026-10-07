@@ -2,6 +2,7 @@ import { CATEGORIES, CATEGORY_LABEL, isSaved, type Category, type Draft, type Ga
 import { productName } from '../shared/infer';
 import { h } from './dom';
 import { icon } from './icons';
+import { account, authAvailable } from './auth';
 import { imageUrl } from './image-urls';
 import { qrSvg, type PhoneSession } from './phone';
 
@@ -41,6 +42,7 @@ export interface ViewState {
   phone: PhoneSession | null; // an open "Use your phone" QR session
   uploadOpen: boolean; // the Upload button's "phone or this computer?" menu
   savedEdit: boolean; // Saved Looks in edit mode (delete buttons showing)
+  accountOpen: boolean; // the account menu in the header
 }
 
 export interface Actions {
@@ -64,6 +66,9 @@ export interface Actions {
   usePhone(): void;
   toggleUpload(open: boolean): void;
   toggleSavedEdit(on: boolean): void;
+  signIn(): void;
+  signOut(): void;
+  toggleAccount(open: boolean): void;
   deleteSavedLook(l: SavedLook): void;
   chooseFile(): void;
   closePhone(): void;
@@ -481,5 +486,25 @@ export function headerView(s: ViewState, a: Actions): HTMLElement {
     { type: 'button', class: 'nav brand', 'aria-label': 'Your Look', 'aria-current': s.view === 'look' ? 'page' : undefined, onclick: () => a.setView('look') },
     h('img', { class: 'brand-mark', src: '/brand/wordmark.png', alt: 'Cabine' }),
   );
-  return h('header', { class: 'app-header' }, home, h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')));
+  return h('header', { class: 'app-header' }, home, h('div', { class: 'header-right' }, h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')), accountButton(s, a)));
+}
+
+// Optional sign-in (D32): "Sign in" when signed out; your initial, with a small
+// menu (email, Sign out), when signed in.
+function accountButton(s: ViewState, a: Actions): HTMLElement | null {
+  if (!authAvailable()) return null;
+  const me = account();
+  if (!me) return h('button', { type: 'button', class: 'nav sign-in', onclick: a.signIn }, 'Sign in');
+  return h(
+    'div',
+    { class: 'account-wrap' },
+    h('button', { type: 'button', class: 'avatar', 'aria-label': `Account: ${me.email}`, 'aria-expanded': s.accountOpen, title: me.email, onclick: () => a.toggleAccount(!s.accountOpen) }, me.initial),
+    s.accountOpen &&
+      h(
+        'div',
+        { class: 'menu account-menu', role: 'menu' },
+        h('p', { class: 'account-email small muted' }, me.email),
+        h('button', { type: 'button', role: 'menuitem', onclick: a.signOut }, 'Sign out'),
+      ),
+  );
 }

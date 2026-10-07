@@ -19,6 +19,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { readFile } from 'node:fs/promises';
 import { BlobPreconditionFailedError, del, get, list, put } from '@vercel/blob';
 import { neon } from '@neondatabase/serverless';
+import { verifyToken } from '@clerk/backend';
 import sharp from 'sharp';
 
 export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
@@ -99,6 +100,8 @@ export interface Deps {
   today?: () => string;
   now?: () => number;
   lockWaitMs?: number; // how long a duplicate request waits for the first one's result
+  // Checks a Clerk session token (D32) and returns the account id, or null if it isn't valid.
+  verifySession?: (token: string) => Promise<string | null>;
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -312,6 +315,26 @@ interface Session {
 
 const TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/; // 32 random bytes, base64url
 const USER_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Who's asking (D32). Signed in: the Clerk account, from a verified session token
+// in X-Cabine-Session, so limits and (later) the closet follow the person across
+// computers. Signed out, or if the token doesn't check out: the install's
+// anonymous id (X-Cabine-User), as before. Ids are hashed wherever they're stored.
+export interface Identity {
+  id: string; // "acct:<clerk user id>" or the anonymous install id
+  account?: string; // the Clerk user id, when signed in
+}
+
+async function who(request: Request, deps: Deps): Promise<Identity> {
+  const token = request.headers.get('x-cabine-session');
+  if (token && deps.verifySession) {
+    const account = await deps.verifySession(token).catch(() => null);
+    if (account) return { id: `acct:${account}`, account };
+  }
+  const userId = request.headers.get('x-cabine-user') ?? '';
+  if (!USER_FORMAT.test(userId)) throw new RequestError('missing or invalid x-cabine-user');
+  return { id: userId };
+}
 // Only a hash of the token is stored, so a storage listing never reveals a usable token.
 const sessionId = (token: string) => sha(`upload-session:${token}`);
 const sessionPath = (id: string) => `sessions/${id}.json`;
@@ -330,8 +353,7 @@ async function readSession(token: unknown, deps: Deps) {
 const now = (deps: Deps) => (deps.now ?? Date.now)();
 
 async function createUploadSession(request: Request, deps: Deps) {
-  const userId = request.headers.get('x-cabine-user') ?? '';
-  if (!USER_FORMAT.test(userId)) throw new RequestError('missing or invalid x-cabine-user');
+  const userId = (await who(request, deps)).id;
   const token = randomBytes(32).toString('base64url');
   const session: Session = { userId, createdAt: now(deps), expiresAt: now(deps) + SESSION_MINUTES * 60_000, uploads: 0 };
   await deps.store.write(sessionPath(sessionId(token)), new TextEncoder().encode(JSON.stringify(session)), 'application/json', null);
@@ -477,8 +499,7 @@ function cleanProps(raw: unknown): Record<string, EventValue> | null {
 }
 
 async function recordEvents(request: Request, body: Record<string, unknown>, deps: Deps) {
-  const userId = request.headers.get('x-cabine-user') ?? '';
-  if (!USER_FORMAT.test(userId)) throw new RequestError('missing or invalid x-cabine-user');
+  const userId = (await who(request, deps)).id;
   if (!Array.isArray(body.events)) throw new RequestError('events must be an array');
   if (body.events.length > MAX_EVENTS) throw new RequestError(`at most ${MAX_EVENTS} events per request`);
   const userHash = sha(`user:${userId}`);
@@ -551,9 +572,13 @@ export function createHandler(getDeps: () => Deps) {
       const message = err instanceof RequestError ? err.message : 'invalid JSON body';
       return Response.json({ error: message }, { status: 400 });
     }
-    // Paid work counts against this install's daily allowance, so it needs the anonymous id.
-    const userId = request.headers.get('x-cabine-user') ?? '';
-    if (!USER_FORMAT.test(userId)) return Response.json({ error: 'missing or invalid x-cabine-user' }, { status: 400 });
+    // Paid work counts against the person's daily allowance: their account, or this install.
+    let userId: string;
+    try {
+      userId = (await who(request, deps)).id;
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : 'missing identity' }, { status: 400 });
+    }
     const work = (emit: (e: Event) => void) =>
       action === 'style' ? renderLook(items, userId, deps, emit) : extractGarment(items[0], userId, deps, emit);
 
@@ -844,6 +869,20 @@ const neonEvents: EventSink = {
   },
 };
 
+// Clerk session tokens are only accepted from Cabine itself: the unpacked dev
+// build's origin, plus any listed in CLERK_AUTHORIZED_PARTIES (comma-separated;
+// add the Chrome Web Store build's origin when it has one).
+const AUTHORIZED_PARTIES = (process.env.CLERK_AUTHORIZED_PARTIES ?? 'chrome-extension://ahombedmldgpdhpafoaccnbehnpjgagj')
+  .split(',')
+  .map((p) => p.trim())
+  .filter(Boolean);
+
+async function verifyClerkSession(token: string): Promise<string | null> {
+  if (!process.env.CLERK_SECRET_KEY) return null; // sign-in not configured: everyone is anonymous
+  const claims = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY, authorizedParties: AUTHORIZED_PARTIES });
+  return typeof claims.sub === 'string' ? claims.sub : null;
+}
+
 const productionDeps = (): Deps => ({
   store: blobStore,
   events: neonEvents,
@@ -853,6 +892,7 @@ const productionDeps = (): Deps => ({
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 60),
   userLimits: { looks: Number(process.env.USER_DAILY_LOOKS ?? 10), cleanups: Number(process.env.USER_DAILY_CLEANUPS ?? 10) },
+  verifySession: verifyClerkSession,
 });
 
 export const POST = createHandler(productionDeps);

@@ -9,6 +9,7 @@ import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSa
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
+import { signIn as authSignIn, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
 import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
@@ -32,6 +33,7 @@ const state: ViewState = {
   phone: null,
   uploadOpen: false,
   savedEdit: false,
+  accountOpen: false,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -200,6 +202,21 @@ const actions: Actions = {
 
   toggleUpload(open) {
     state.uploadOpen = open;
+    render();
+  },
+
+  signIn() {
+    authSignIn();
+  },
+
+  async signOut() {
+    state.accountOpen = false;
+    await authSignOut();
+    render();
+  },
+
+  toggleAccount(open) {
+    state.accountOpen = open;
     render();
   },
 
@@ -489,6 +506,7 @@ document.addEventListener('click', (e) => {
   const target = e.target as Element;
   if (state.menuFor && !target.closest('.tile-wrap')) actions.toggleMenu(null);
   if (state.uploadOpen && !target.closest('.upload-wrap')) actions.toggleUpload(false);
+  if (state.accountOpen && !target.closest('.account-wrap')) actions.toggleAccount(false);
 });
 
 chrome.storage.local.onChanged.addListener((changes) => {
@@ -507,3 +525,8 @@ void (async () => {
 })().catch((err) => console.error('[cabine] initialization failed', err));
 void trackPanel('extension_opened');
 startFlushing();
+// Optional sign-in: redraw the header when someone signs in or out.
+void startAuth(() => {
+  if (!document.getElementById('header')) return;
+  render();
+});

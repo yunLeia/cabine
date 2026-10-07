@@ -539,3 +539,32 @@ Applied from the user's design-system board to the panel, the phone upload page 
   - Pictures sit in taller 2:3 boxes and are shown whole (contain, not cover), so the mannequin isn't cut off.
   - **Edit** (utility style, like Upload) puts a × on every look; tapping it deletes the look at once, with no confirmation.
   - **Done** ends editing. So does leaving the page, or deleting the last look.
+
+## D32. Optional sign-in with Clerk; the closet syncs to the account
+
+- **Context:** the closet lives in one browser (D21). A reinstall, a new computer, or cleared browser data loses it. Per-person limits could be dodged by making new anonymous ids (D22).
+- **Options:**
+  - sign-in required · **sign-in optional**
+  - **Clerk** (Vercel Marketplace, has a Chrome extension SDK) · Google only via `chrome.identity` · a backup file with no accounts
+  - sync My Closet + Saved Looks · also sync the Fitting Room
+- **Decision (user):**
+  - **Optional sign-in with Clerk.** Email with a one-time code, plus Google. Signed out, everything works as before.
+  - **Sync My Closet and Saved Looks.** The Fitting Room's store captures stay on the computer (temporary, little value, more storage).
+- **Step 1 (this change):** sign-in, and the server recognizing the account.
+  - Clerk was provisioned through the Marketplace (`clerk-cyclamen-flame`, development instance) and connected to `cabine-server`.
+  - The unpacked extension's origin is registered as an allowed origin. The Chrome Web Store build's origin must be added when it exists, both in Clerk and in `CLERK_AUTHORIZED_PARTIES`.
+  - **Extension:**
+    - `@clerk/chrome-extension/client` (`createClerkClient`, Clerk's "no remote code" build, bundled) in `sidepanel/auth.ts`.
+    - Header: "Sign in", or your initial with a menu (email, Sign out).
+    - When signed in, every request adds `X-Cabine-Session` (a short-lived token Clerk refreshes).
+    - New permission: `cookies`, which Clerk's extension SDK needs.
+  - **Server:** `who()` verifies the token with `@clerk/backend` `verifyToken` (secret key plus the extension origin as authorized party).
+    - A valid token means the identity is `acct:<clerk user id>`, so **daily allowances and analytics follow the account across computers**.
+    - No token, or one that doesn't verify, means the install's anonymous id, as before.
+    - Tested: one account shares its allowance across two installs; a forged token falls back to the install.
+- **Kept the current extension id** rather than pinning a new one with a manifest `key`. A new id would give the extension fresh storage and lose the existing local closet.
+- **Tradeoffs:**
+  - The extension grew from ~0.5 MB to ~3.5 MB, mostly Clerk's prebuilt sign-in UI, loaded lazily.
+  - A new third party (Clerk) now holds account data (email).
+  - The Google OAuth client secret was shown in a chat screenshot and should be rotated.
+- **Next:** step 2, closet and saved-look sync (first upload, then both ways). Step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.

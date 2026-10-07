@@ -3,6 +3,7 @@ import { isSaved } from '../shared/types';
 import { withStorageLock } from '../shared/storage-lock.ts';
 import { chainOrder, pruneOutfit } from '../shared/outfit';
 import { getUserId } from '../shared/identity';
+import { sessionToken } from './auth';
 import { getImage, pruneRenderCache, putImage } from '../shared/images';
 import type { Garment, Outfit } from '../shared/types';
 
@@ -107,13 +108,22 @@ async function prepare(g: Garment) {
   return { category: g.category, title: usefulTitle(g.title), image: await toJpegDataUri(blob) };
 }
 
+// The client key, the install id, and, when signed in, the Clerk session token
+// (the server uses the account then, and falls back to the install if it doesn't verify).
+async function requestHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Cabine-User': await getUserId() };
+  const token = await sessionToken();
+  if (token) headers['X-Cabine-Session'] = token;
+  return headers;
+}
+
 async function send(route: string, body: unknown): Promise<Response> {
   if (!KEY) throw new RenderError('not_configured', 'This build of Cabine has no server key. Add VITE_CABINE_CLIENT_KEY to .env.local and rebuild.');
   let res: Response;
   try {
     res = await fetch(`${API}/${route}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Cabine-User': await getUserId() },
+      headers: await requestHeaders(),
       body: JSON.stringify(body),
     });
   } catch {

@@ -84,9 +84,10 @@ const USER = '6f1b6c0e-3a1f-4d2b-9a7e-2f1d3c4b5a69';
 
 const OTHER_USER = '0b7e1c2d-4f5a-4b6c-8d9e-0a1b2c3d4e5f';
 
-async function call(deps: Deps, body: unknown, key: string | null = 'secret', route = 'style', user: string | null = USER) {
+async function call(deps: Deps, body: unknown, key: string | null = 'secret', route = 'style', user: string | null = USER, session?: string) {
   const headers: Record<string, string> = {};
   if (user) headers['x-cabine-user'] = user;
+  if (session) headers['x-cabine-session'] = session;
   if (key) headers.authorization = `Bearer ${key}`;
   const res = await createHandler(() => deps)(
     new Request(`https://cabine.test/api/${route}`, { method: 'POST', headers, body: JSON.stringify(body) }),
@@ -464,6 +465,22 @@ const tests: [string, () => Promise<void>][] = [
     await call(deps, look); // the expired look is made again
     assert.equal(provider.calls.length, 3);
     assert.equal(extractor.calls.length, 1);
+  }],
+
+  ['signed in: the allowance follows the account across installs; a bad token falls back to the install', async () => {
+    const { deps, provider } = setup();
+    deps.userLimits = { looks: 1, cleanups: 1 };
+    deps.verifySession = async (token) => (token === 'good-token' ? 'user_abc' : null);
+    const laptop = '11111111-1111-4111-8111-111111111111';
+    const desktop = '22222222-2222-4222-8222-222222222222';
+    const one = { items: [item('top', 'a')] };
+    const two = { items: [item('top', 'b')] };
+    assert.equal((await call(deps, one, 'secret', 'style', laptop, 'good-token')).last.type, 'result');
+    // Same account on another computer: today's one look is already used.
+    assert.equal((await call(deps, two, 'secret', 'style', desktop, 'good-token')).last.code, 'user_limit');
+    // A token that doesn't verify counts against the install instead (fresh allowance here).
+    assert.equal((await call(deps, two, 'secret', 'style', desktop, 'forged')).last.type, 'result');
+    assert.equal(provider.calls.length, 2);
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {

@@ -96,6 +96,15 @@ p { margin: 0; }
 .nav[aria-current='page'] { color: var(--ink); font-weight: 600; }
 .nav[aria-current='page']::after { transform: scaleX(1); }
 .nav.brand { padding: 2px 0 4px; line-height: 0; }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.account-wrap { position: relative; }
+.avatar {
+  width: 26px; height: 26px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--accent-strong); background: var(--accent); color: var(--ink); font-size: 12px; font-weight: 600;
+}
+.avatar:hover, .avatar[aria-expanded='true'] { background: var(--accent-hover); }
+.account-menu { top: calc(100% + 8px); right: 0; min-width: 200px; }
+.account-email { padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand-mark { height: 20px; width: auto; display: block; }
 @media (prefers-reduced-motion: reduce) { .nav::after, .btn { transition: none; } }
 
