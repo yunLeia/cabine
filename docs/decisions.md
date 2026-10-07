@@ -567,4 +567,11 @@ Applied from the user's design-system board to the panel, the phone upload page 
   - The extension grew from ~0.5 MB to ~3.5 MB, mostly Clerk's prebuilt sign-in UI, loaded lazily.
   - A new third party (Clerk) now holds account data (email).
   - The Google OAuth client secret was shown in a chat screenshot and should be rotated.
+- **Tested in Chrome (revision):**
+  - **Bot sign-up protection is off** (Clerk → Protect → Rules). Its CAPTCHA can't load in an extension, so every sign-up failed "security validations".
+  - **Email works. Google does not:** Clerk's extension SDK doesn't support OAuth in a popup or side panel, because Chrome can't send the provider's redirect back to the extension. The button spun and nothing happened.
+  - **For now, email only:** Google is turned off in Clerk so the broken button doesn't show.
+  - Google can come back later in one of two ways:
+    - `chrome.identity.launchWebAuthFlow`, with the Google token handed to Clerk
+    - a Clerk Sync Host web page on the server's domain
 - **Next:** step 2, closet and saved-look sync (first upload, then both ways). Step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.
