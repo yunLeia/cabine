@@ -41,7 +41,7 @@ const store: Store = {
 // Fakes: a render/extract "result" is just the first garment's own image.
 const deps: Deps = {
   store,
-  events: { record: async (rows) => console.log('events', rows.map((r) => r.name).join(', ')), countSince: async () => 0 },
+  events: { record: async (rows) => console.log('events', rows.map((r) => r.name).join(', ')), countSince: async () => 0, forget: async () => {} },
   provider: { id: 'local-fake', credits: 1, render: async (items) => items[0].bytes },
   extractor: { id: 'local-fake', credits: 1, extract: async (item) => item.bytes },
   clientKey: process.env.CABINE_CLIENT_KEY ?? 'dev-key',

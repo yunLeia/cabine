@@ -595,4 +595,23 @@ Applied from the user's design-system board to the panel, the phone upload page 
     - The first sign-in uploads the existing closet. Signing in as a different account merges this computer's closet into it. Signing out keeps everything local.
   - The account menu shows the sync state.
   - **Cost:** storage only, ~6–15 MB per person. The first 1 GB is free, then about $0.02 per GB-month.
-- **Next:** step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.
+- **Fixed in testing:**
+  - The first sync after sign-in raced Clerk's token, so it retries every 3 s until the token is accepted.
+  - Blob returns a weak etag (`W/"…"`) for compressed reads, which ifMatch always rejects. The store now uses the strong one; this broke every update to an account manifest.
+- **Step 3:**
+  - **Phone uploads** need nothing new: they land in My Closet on the computer and sync from there.
+  - **Delete account** (account menu, with a confirm) calls `/api/account-delete`, which removes:
+    - the account's synced closet and photos
+    - its usage statistics in Neon
+    - the Clerk user
+  - Each step can be repeated, so a failure part-way is fixed by asking again. What's on the computer stays; it's just local again.
+  - **Privacy policy** rewritten for optional sign-in:
+    - Clerk holds the email.
+    - What syncs: photos, category, name, and the product page address of My Closet pieces. That address previously never left the browser.
+    - Synced data stays until the user removes it or deletes the account.
+    - Uploads are cleaned up automatically.
+  - **Store answers** in `docs/store-privacy.md`.
+- **Still to do at publish:**
+  - Clerk production instance (`pk_live_`).
+  - The store build's origin added to Clerk allowed origins and `CLERK_AUTHORIZED_PARTIES`.
+  - Google sign-in (blocked on the Google client's redirect URI).

@@ -24,28 +24,37 @@
     <main>
       <div class="brand"><img src="/brand/wordmark.png" alt="Cabine" height="24" /></div>
       <h1>Privacy</h1>
-      <p class="muted">Effective October 1, 2026</p>
+      <p class="muted">Effective October 8, 2026</p>
 
       <div class="summary">
-        <p><strong>In short:</strong> there's no account and no login. Your closet stays in your browser. Photos leave your computer only when you ask Cabine to show an outfit or clean up a photo, and the results are deleted from our server after 30 days. Usage statistics never include photos, product names or page addresses.</p>
+        <p><strong>In short:</strong> signing in is optional. Without an account, your closet stays in your browser. If you sign in, My Closet and your Saved Looks are also kept in your account so they're there on any computer, until you delete them or the account. Photos also leave your computer when you ask Cabine to show an outfit or when a photo is cleaned up; those results are deleted from our server after 30 days. Usage statistics never include photos, product names or page addresses.</p>
       </div>
 
       <h2>What stays on your computer</h2>
-      <p>Your closet, your Fitting Room, your outfits and your Buy / Save / Pass choices are stored only in your browser, inside the Cabine extension. They aren't uploaded or synced. Removing the extension deletes them.</p>
+      <p>Your closet, your Fitting Room and your outfits are stored in your browser, inside the Cabine extension. Without an account, they aren't uploaded or synced, and removing the extension deletes them. Your Fitting Room (store pieces you're considering) always stays on your computer, signed in or not.</p>
+
+      <h2>If you sign in</h2>
+      <p>Signing in is optional and uses <a href="https://clerk.com/legal/privacy" rel="noopener">Clerk</a>, which holds your email address and handles the sign-in. Cabine receives your account id and email from Clerk, and uses the account to:</p>
+      <ul>
+        <li><strong>Keep My Closet and your Saved Looks in your account</strong>: each piece's photos (the original and the cleaned-up one), its category, its name and, for pieces from a store, the address of that product page; and each saved look's picture and which pieces it uses. They're stored privately on our server and only your signed-in Cabine can read them.</li>
+        <li><strong>Count your daily allowance</strong> of outfits and clean-ups across your computers.</li>
+      </ul>
+      <p>They stay until you remove them in Cabine or delete your account. Signing out keeps what's on your computer and stops syncing.</p>
 
       <h2>What is sent, and when</h2>
       <ul>
         <li><strong>When you tap "See the outfit"</strong>, the photos of the pieces in that look are sent to our server with their category (top, bottom…) and product name. The server sends them to FASHN, the image service that draws the outfit.</li>
-        <li><strong>When you clean up a photo</strong> (automatically when a store item moves to My Closet, or when you ask), that one photo, its category and name are sent the same way.</li>
-        <li><strong>When you add clothes from your phone</strong>, the photos you choose are uploaded to a temporary inbox on our server and copied into your closet on your computer. Each photo is deleted from the server as soon as your computer has it, and anything left behind is deleted a day after the QR code expires.</li>
+        <li><strong>When a photo is cleaned up</strong> (automatically when you upload a piece or move a store item to My Closet), that one photo, its category and name are sent the same way.</li>
+        <li><strong>When you add clothes from your phone</strong>, the photos you choose are uploaded to a temporary inbox on our server and copied into your closet on your computer. Each photo is deleted from the inbox as soon as your computer has it, and anything left behind is deleted a day after the QR code expires. If you're signed in, the piece is then kept in your account like the rest of My Closet.</li>
         <li><strong>When you right-click "Take it to Cabine"</strong> on a store, the extension downloads that product image directly from the store into your browser. Nothing is sent to us at that moment.</li>
       </ul>
-      <p>The address of the store page you were on is kept only in your browser, so you can open it again. It is never sent to our server.</p>
+      <p>The address of the store page a piece came from is kept in your browser so you can open it again. It's sent to our server only if you're signed in and the piece is in My Closet (see above).</p>
 
       <h2>How long we keep it</h2>
       <ul>
         <li>Finished outfit pictures and cleaned-up photos are kept on our server so the same request doesn't have to be made twice. They're deleted <strong>30 days</strong> after they were made.</li>
-        <li>Phone uploads are deleted as described above, within a day at most.</li>
+        <li>Phone uploads are deleted from the inbox as described above, within a day at most.</li>
+        <li>If you're signed in: My Closet and Saved Looks stay in your account until you remove them or delete the account.</li>
         <li>Daily usage counters (how many outfits an install made today, used for the daily limit) are deleted after 8 days.</li>
       </ul>
       <p>FASHN processes the photos to make each result. Their handling is covered by <a href="https://fashn.ai/privacy" rel="noopener">FASHN's privacy policy</a>.</p>
@@ -53,22 +62,22 @@
       <h2>Usage statistics</h2>
       <p>To learn whether Cabine is useful, the extension records simple events, such as "a store item was captured", "an outfit was requested", how long it took, and which choice was made. Each event carries:</p>
       <ul>
-        <li>an anonymous, random install id, which our server stores only in hashed form;</li>
+        <li>an anonymous, random install id, or your account id if you're signed in, which our server stores only in hashed form;</li>
         <li>small details such as the item category, counts, timings, and the store's domain name (for example <em>www.cos.com</em>, never the full page address).</li>
       </ul>
       <p>Events never include photos, product names or page addresses. We don't use advertising or third-party trackers, and we don't sell or share this data.</p>
 
       <h2>What we don't collect</h2>
-      <p>No name, email, account, location or browsing history. Cabine doesn't read the pages you visit. It only acts on an image when you right-click it and choose "Take it to Cabine".</p>
+      <p>No name, location or browsing history, and no email unless you sign in (then Clerk holds it). Cabine doesn't read the pages you visit. It only acts on an image when you right-click it and choose "Take it to Cabine".</p>
 
       <h2>Where it runs</h2>
-      <p>Our server runs on Vercel. Images are stored in Vercel Blob and usage statistics in a Neon Postgres database. Like any web host, Vercel sees the IP address of each request; Cabine doesn't store it.</p>
+      <p>Our server runs on Vercel. Images and synced closets are stored privately in Vercel Blob, and usage statistics in a Neon Postgres database. Sign-in is run by Clerk. Like any web host, Vercel sees the IP address of each request; Cabine doesn't store it.</p>
 
       <h2>Your choices</h2>
       <ul>
-        <li>Remove a piece in Cabine, or remove the extension, to delete your closet from your browser.</li>
-        <li>Results on our server expire on their own after 30 days.</li>
-        <li>Because there's no account, the statistics can't be linked to you.</li>
+        <li>Remove a piece or a saved look in Cabine to delete it, from your account too if you're signed in.</li>
+        <li><strong>Delete account</strong> (in the account menu) deletes your synced closet and saved looks, their photos, your account's usage statistics and your sign-in. What's on your computer stays until you remove the extension.</li>
+        <li>Without an account, the statistics can't be linked to you. Results on our server expire on their own after 30 days.</li>
       </ul>
 
       <h2>Contact</h2>

@@ -174,3 +174,14 @@ async function removeLocal(id: string): Promise<void> {
     await withStorageLock('render-cache', () => deleteImage(key));
   }
 }
+
+// "Delete account": the server deletes the account's closet, photos, statistics
+// and sign-in. This computer keeps its own copy, now just local again.
+export async function deleteAccountData(): Promise<void> {
+  clearTimeout(timer);
+  await navigator.locks.request('cabine-sync', async () => {
+    await postJson('account-delete', {});
+    await chrome.storage.local.remove(META);
+  });
+  setStatus('off');
+}

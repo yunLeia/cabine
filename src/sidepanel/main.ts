@@ -9,7 +9,7 @@ import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSa
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
-import { requestSync, onSyncStatus } from './sync';
+import { deleteAccountData, requestSync, onSyncStatus } from './sync';
 import { account, interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
@@ -213,6 +213,21 @@ const actions: Actions = {
   async signOut() {
     state.accountOpen = false;
     await authSignOut();
+    render();
+  },
+
+  async deleteAccount() {
+    state.accountOpen = false;
+    render();
+    if (!confirm('Delete your Cabine account?\n\nYour synced closet, saved looks and sign-in are deleted from our server. This can’t be undone. What’s on this computer stays here.')) return;
+    try {
+      await deleteAccountData();
+      await authSignOut().catch(() => {}); // the session may already be gone with the account
+      notify('Your account was deleted');
+    } catch (err) {
+      console.warn('[cabine] account deletion failed', err);
+      notify('Couldn’t delete your account. Please try again.');
+    }
     render();
   },
 

@@ -11,6 +11,7 @@
 //   POST /api/closet-put      ...merge changed or deleted records into it
 //   POST /api/closet-image    ...fetch one photo
 //   POST /api/closet-image-put ...store one photo
+//   POST /api/account-delete  ...delete the account: its closet, photos, statistics and sign-in
 //   GET  /api/cleanup         daily cron: deletes expired sessions, unclaimed photos and old cached images
 //
 // The extension sends original garment images, categories and titles. This
@@ -23,7 +24,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { readFile } from 'node:fs/promises';
 import { BlobPreconditionFailedError, del, get, list, put } from '@vercel/blob';
 import { neon } from '@neondatabase/serverless';
-import { verifyToken } from '@clerk/backend';
+import { createClerkClient, verifyToken } from '@clerk/backend';
 import sharp from 'sharp';
 
 export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
@@ -91,6 +92,7 @@ export type EventValue = string | number | boolean | string[];
 export interface EventSink {
   record(rows: EventRow[]): Promise<void>;
   countSince(userHash: string, sinceMs: number): Promise<number>; // events received for this install
+  forget(userHash: string): Promise<void>; // delete everyone of this person's events
 }
 
 export interface Deps {
@@ -106,6 +108,8 @@ export interface Deps {
   lockWaitMs?: number; // how long a duplicate request waits for the first one's result
   // Checks a Clerk session token (D32) and returns the account id, or null if it isn't valid.
   verifySession?: (token: string) => Promise<string | null>;
+  // Deletes the sign-in itself (the Clerk user), last step of deleting an account.
+  deleteAccount?: (account: string) => Promise<void>;
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -558,6 +562,19 @@ async function closetPut(request: Request, body: Record<string, unknown>, deps: 
   throw new Error('Could not update the closet');
 }
 
+// "Delete account": the synced closet and its photos, the account's statistics,
+// then the Clerk user. Each step can be repeated, so a failure part-way is retried
+// by asking again. What's on the person's computers stays there.
+async function deleteAccount(request: Request, deps: Deps) {
+  const account = await signedIn(request, deps);
+  const files = await deps.store.list(`${accountDir(account)}/`);
+  for (let i = 0; i < files.length; i += 500) await deps.store.remove(files.slice(i, i + 500));
+  await deps.events.forget(sha(`user:acct:${account}`));
+  await deps.deleteAccount?.(account);
+  console.log(JSON.stringify({ event: 'account_deleted', files: files.length }));
+  return { deleted: true };
+}
+
 const imageMime = (b: Uint8Array) =>
   b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : b[0] === 0x89 && b[1] === 0x50 ? 'image/png' : 'image/webp';
 
@@ -660,7 +677,7 @@ function authorized(request: Request, clientKey: string): boolean {
 }
 
 const STREAMING = new Set(['style', 'extract']); // paid work: NDJSON progress + result
-const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events', 'closet', 'closet-put', 'closet-image', 'closet-image-put']); // the extension
+const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events', 'closet', 'closet-put', 'closet-image', 'closet-image-put', 'account-delete']); // the extension
 const TOKEN_ONLY = new Set(['inbox-session', 'inbox-upload']); // the phone page: its token is the credential
 
 export function createHandler(getDeps: () => Deps) {
@@ -672,7 +689,7 @@ export function createHandler(getDeps: () => Deps) {
 
     let body: Record<string, unknown>;
     try {
-      body = action === 'upload-session' || action === 'closet' ? {} : ((await request.json()) as Record<string, unknown>);
+      body = action === 'upload-session' || action === 'closet' || action === 'account-delete' ? {} : ((await request.json()) as Record<string, unknown>);
     } catch {
       return Response.json({ error: 'invalid JSON body' }, { status: 400 });
     }
@@ -689,6 +706,7 @@ export function createHandler(getDeps: () => Deps) {
           : action === 'closet-put' ? await closetPut(request, body, deps)
           : action === 'closet-image' ? await closetImage(request, body, deps)
           : action === 'closet-image-put' ? await closetImagePut(request, body, deps)
+          : action === 'account-delete' ? await deleteAccount(request, deps)
           : await ackInbox(body, deps);
         return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
       } catch (err) {
@@ -1005,6 +1023,10 @@ const neonEvents: EventSink = {
     ])) as { n: number }[];
     return rows[0].n;
   },
+  async forget(userHash) {
+    sqlClient ??= neon(env('DATABASE_URL'));
+    await sqlClient.query('delete from events where user_hash = $1', [userHash]);
+  },
 };
 
 // Clerk session tokens are only accepted from Cabine itself: the unpacked dev
@@ -1021,6 +1043,10 @@ async function verifyClerkSession(token: string): Promise<string | null> {
   return typeof claims.sub === 'string' ? claims.sub : null;
 }
 
+async function deleteClerkUser(account: string): Promise<void> {
+  await createClerkClient({ secretKey: env('CLERK_SECRET_KEY') }).users.deleteUser(account);
+}
+
 const productionDeps = (): Deps => ({
   store: blobStore,
   events: neonEvents,
@@ -1031,6 +1057,7 @@ const productionDeps = (): Deps => ({
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 60),
   userLimits: { looks: Number(process.env.USER_DAILY_LOOKS ?? 10), cleanups: Number(process.env.USER_DAILY_CLEANUPS ?? 10) },
   verifySession: verifyClerkSession,
+  deleteAccount: deleteClerkUser,
 });
 
 export const POST = createHandler(productionDeps);

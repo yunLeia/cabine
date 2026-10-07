@@ -69,6 +69,7 @@ export interface Actions {
   toggleSavedEdit(on: boolean): void;
   signIn(): void;
   signOut(): void;
+  deleteAccount(): void;
   toggleAccount(open: boolean): void;
   deleteSavedLook(l: SavedLook): void;
   chooseFile(): void;
@@ -514,6 +515,7 @@ function accountButton(s: ViewState, a: Actions): HTMLElement | null {
         h('p', { class: 'account-email small muted' }, me.email),
         h('p', { class: 'account-sync small muted' }, SYNC_LABEL[syncStatus()]),
         h('button', { type: 'button', role: 'menuitem', onclick: a.signOut }, 'Sign out'),
+        h('button', { type: 'button', role: 'menuitem', class: 'danger', onclick: a.deleteAccount }, 'Delete account'),
       ),
   );
 }

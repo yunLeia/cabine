@@ -107,6 +107,7 @@ function setup(limit = 100) {
     events: {
       record: async (rows) => void recorded.push(...rows),
       countSince: async (userHash, since) => recorded.filter((r) => r.userHash === userHash && r.at > since).length,
+      forget: async (userHash) => void recorded.splice(0, recorded.length, ...recorded.filter((r) => r.userHash !== userHash)),
     },
     provider,
     extractor,
@@ -528,6 +529,25 @@ const tests: [string, () => Promise<void>][] = [
       Array.from({ length: 6 }, (_, i) => call(deps, { records: [{ id: `g:${i}`, updatedAt: 1, data: {} }] }, 'secret', 'closet-put', USER, 'tok')),
     );
     assert.equal((await call(deps, {}, 'secret', 'closet', USER, 'tok')).body.records.length, 6);
+  }],
+
+  ['delete account: removes its closet, photos, statistics and sign-in, and nobody else\'s', async () => {
+    const { deps, store, recorded } = setup();
+    const deleted: string[] = [];
+    deps.verifySession = async (token) => ({ 'tok-a': 'user_a', 'tok-b': 'user_b' })[token] ?? null;
+    deps.deleteAccount = async (account) => void deleted.push(account);
+    for (const tok of ['tok-a', 'tok-b']) {
+      await call(deps, { id: 'img-1', image: img(tok) }, 'secret', 'closet-image-put', USER, tok);
+      await call(deps, { records: [{ id: 'g:1', updatedAt: 1, images: ['img-1'], data: {} }] }, 'secret', 'closet-put', USER, tok);
+      await call(deps, { events: [{ name: 'extension_opened' }] }, 'secret', 'events', USER, tok);
+    }
+    assert.equal((await call(deps, {}, 'secret', 'account-delete', USER)).status, 403, 'signed out: nothing to delete');
+    assert.equal((await call(deps, {}, 'secret', 'account-delete', USER, 'tok-a')).status, 200);
+    assert.deepEqual(deleted, ['user_a']);
+    assert.deepEqual((await call(deps, {}, 'secret', 'closet', USER, 'tok-a')).body.records, []);
+    assert.equal((await call(deps, {}, 'secret', 'closet', USER, 'tok-b')).body.records.length, 1, 'the other account is untouched');
+    assert.equal([...store.files.keys()].filter((k) => k.startsWith('accounts/')).length, 2, 'only the other account\'s manifest and photo remain');
+    assert.equal(recorded.length, 1, 'only the other account\'s statistics remain');
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
