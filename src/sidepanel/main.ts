@@ -1,6 +1,8 @@
+import { recoverInterruptedCleanups } from '../shared/cleanup.ts';
+import { withStorageLock } from '../shared/storage-lock.ts';
 import '@fontsource-variable/inter';
 import { domainOf } from '../shared/analytics';
-import { deleteImage, putImage } from '../shared/images';
+import { deleteImage, pruneRenderCache, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
@@ -160,9 +162,9 @@ const actions: Actions = {
     void trackPanel('category_edited', { itemId: g.id, from: g.category, to: c, location: g.location });
     const wasOn = state.outfit[g.category] === g.id;
     if (state.filter === g.category) state.filter = c; // follow the piece to its new tab
+    const nextOutfit = toggleInOutfit(removeFromOutfit(state.outfit, g.category), { ...g, category: c });
     await updateGarment(g.id, { category: c });
-    // Still in the look, now in its right place.
-    if (wasOn) await setOutfit(toggleInOutfit(removeFromOutfit(state.outfit, g.category), { ...g, category: c }));
+    if (wasOn) await setOutfit(nextOutfit);
   },
 
   async addToCloset(g: Garment) {
@@ -208,6 +210,7 @@ const actions: Actions = {
 
   async deleteSavedLook(l) {
     await setSavedLooks(state.savedLooks.filter((x) => x.key !== l.key));
+    await withStorageLock('render-cache', () => deleteImage(l.key));
     if (!state.savedLooks.some((x) => x.key !== l.key && isSaved(x))) state.savedEdit = false; // nothing left to edit
   },
 
@@ -296,15 +299,19 @@ const CLEANUP_PARALLEL = 2;
 let cleanupsRunning = 0;
 const cleanupQueue: (() => void)[] = [];
 async function cleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
-  await updateGarment(g.id, { cleanStatus: 'pending' });
-  if (cleanupsRunning >= CLEANUP_PARALLEL) await new Promise<void>((go) => cleanupQueue.push(go));
-  cleanupsRunning++;
-  try {
-    await runCleanUp(g, trigger);
-  } finally {
-    cleanupsRunning--;
-    cleanupQueue.shift()?.();
-  }
+  await withStorageLock(`cleanup:${g.id}`, async () => {
+    const current = (await loadState()).garments.find((item) => item.id === g.id);
+    if (!current) return;
+    await updateGarment(g.id, { cleanStatus: 'pending' });
+    if (cleanupsRunning >= CLEANUP_PARALLEL) await new Promise<void>((go) => cleanupQueue.push(go));
+    cleanupsRunning++;
+    try {
+      await runCleanUp(current, trigger);
+    } finally {
+      cleanupsRunning--;
+      cleanupQueue.shift()?.();
+    }
+  });
 }
 
 async function runCleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void> {
@@ -312,9 +319,16 @@ async function runCleanUp(g: Garment, trigger: 'auto' | 'manual'): Promise<void>
   const started = Date.now();
   try {
     const clean = await cleanUpPhoto(g);
-    const cleanImageId = `clean-${g.id}`;
+    const current = (await loadState()).garments.find((item) => item.id === g.id);
+    if (!current) return;
+    if (current.category !== g.category || current.imageVersion !== g.imageVersion) {
+      await updateGarment(g.id, { cleanStatus: 'failed' });
+      return;
+    }
+    const cleanImageId = `clean-${g.id}-${crypto.randomUUID()}`;
     await putImage(cleanImageId, clean);
     await updateGarment(g.id, { cleanImageId, cleanStatus: undefined });
+    if (current.cleanImageId) await deleteImage(current.cleanImageId);
     void trackPanel('photo_cleanup_completed', { itemId: g.id, seconds: (Date.now() - started) / 1000 });
   } catch (err) {
     if (!(err instanceof RenderError)) console.error('[cabine] clean-up failed', err);
@@ -481,6 +495,15 @@ chrome.storage.local.onChanged.addListener((changes) => {
   if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes || KEYS.savedLooks in changes) void refresh();
 });
 
-void refresh();
+void (async () => {
+  await recoverInterruptedCleanups();
+  await refresh();
+  await withStorageLock('render-cache', async () => {
+    const stored = await loadState();
+    const byId = new Map(stored.garments.map((g) => [g.id, g]));
+    const key = await lookKey(pruneOutfit(stored.outfit, byId), byId);
+    await pruneRenderCache(new Set([key, ...stored.savedLooks.filter(isSaved).map((l) => l.key)]));
+  });
+})().catch((err) => console.error('[cabine] initialization failed', err));
 void trackPanel('extension_opened');
 startFlushing();

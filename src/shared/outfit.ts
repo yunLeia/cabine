@@ -37,7 +37,16 @@ export function chainOrder(outfit: Outfit, byId: Map<string, Garment>): Garment[
   });
 }
 
-// Drop ids of garments that no longer exist (e.g. deleted from the library).
+// Restore slots from current categories and reapply exclusions after category edits.
 export function pruneOutfit(outfit: Outfit, byId: Map<string, Garment>): Outfit {
-  return Object.fromEntries(Object.entries(outfit).filter(([, id]) => id && byId.has(id))) as Outfit;
+  let next: Outfit = {};
+  const seen = new Set<string>();
+  for (const category of CHAIN_ORDER) {
+    const id = outfit[category];
+    const garment = id ? byId.get(id) : undefined;
+    if (!garment || seen.has(garment.id)) continue;
+    seen.add(garment.id);
+    next = toggleInOutfit(next, garment);
+  }
+  return next;
 }

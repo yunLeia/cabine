@@ -1,3 +1,4 @@
+import { withStorageLock } from './storage-lock.ts';
 import type { Draft, Garment, Outfit, SavedLook } from './types';
 
 // Lightweight state in chrome.storage.local (D2): garment records, the look
@@ -26,21 +27,23 @@ export async function loadState(): Promise<StoredState> {
   };
 }
 
-// Every change to the garment list is read-modify-write. With phone uploads and
-// several photo clean-ups finishing at once, two of them could read the same
-// list and the second write would drop the first one's change, so they run one
-// at a time.
-let garmentWrites: Promise<unknown> = Promise.resolve();
+// Serialize read-modify-write across the worker and all open panels.
 function changeGarments(change: (garments: Garment[]) => Garment[]): Promise<void> {
-  const next = garmentWrites.then(async () => {
+  return withStorageLock('garments', async () => {
     const { garments } = await loadState();
     await chrome.storage.local.set({ [KEYS.garments]: change(garments) });
   });
-  garmentWrites = next.catch(() => {});
-  return next;
 }
 
-export const addGarments = (add: Garment[]) => changeGarments((garments) => [...garments, ...add]);
+export const addGarments = (add: Garment[]) => changeGarments((garments) => {
+  const existing = new Set(garments.map((g) => g.id));
+  const fresh = add.filter((g) => {
+    if (existing.has(g.id)) return false;
+    existing.add(g.id);
+    return true;
+  });
+  return [...garments, ...fresh];
+});
 
 export const updateGarment = (id: string, patch: Partial<Garment>) =>
   changeGarments((garments) => garments.map((g) => (g.id === id ? { ...g, ...patch } : g)));

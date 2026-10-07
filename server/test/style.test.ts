@@ -121,6 +121,28 @@ function setup(limit = 100) {
 const look = { items: [item('outerwear', 'coat'), item('top', 'knit'), item('bottom', 'jeans')] };
 
 const tests: [string, () => Promise<void>][] = [
+  ['rechecks the cache when a competing render finishes before lock acquisition', async () => {
+    const { deps, store, provider } = setup();
+    const read = store.read.bind(store);
+    let reads = 0;
+    let release!: () => void;
+    const firstFinished = new Promise<void>((resolve) => { release = resolve; });
+    store.read = async (path) => {
+      if (path.startsWith('looks/') && ++reads === 2) {
+        await firstFinished;
+        return null; // a cache miss observed before the first request completed
+      }
+      return read(path);
+    };
+    const first = call(deps, look).finally(release);
+    const second = call(deps, look);
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(provider.calls.length, 1);
+    assert.equal(a.last.credits, 1);
+    assert.equal(b.last.credits, 0);
+    assert.deepEqual(a.last.image, b.last.image);
+  }],
+
   ['rejects a wrong client key', async () => {
     const { deps, provider } = setup();
     assert.equal((await call(deps, look, 'nope')).status, 401);

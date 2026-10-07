@@ -199,6 +199,12 @@ async function paidWork(
     throw new Error('Still working on this one from another request.');
   }
   try {
+    // The first request may have finished between our cache read and lock acquisition.
+    const completed = await deps.store.read(path);
+    if (completed) {
+      emit({ type: 'plan', cached: true, credits: 0 });
+      return { image: completed.bytes, cached: true, credits: 0 };
+    }
     emit({ type: 'plan', cached: false, credits });
     await reserve(kind, credits, userId, deps);
     const image = await produce();

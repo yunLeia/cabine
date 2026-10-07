@@ -11,3 +11,4 @@ scripts/fashn-trial/inputs/
 .agents/
 .claude/skills/
 skills-lock.json
+server/.claude/

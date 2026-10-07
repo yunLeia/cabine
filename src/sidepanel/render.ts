@@ -1,6 +1,9 @@
-import { chainOrder } from '../shared/outfit';
+import { loadState } from '../shared/store';
+import { isSaved } from '../shared/types';
+import { withStorageLock } from '../shared/storage-lock.ts';
+import { chainOrder, pruneOutfit } from '../shared/outfit';
 import { getUserId } from '../shared/identity';
-import { getImage, putImage } from '../shared/images';
+import { getImage, pruneRenderCache, putImage } from '../shared/images';
 import type { Garment, Outfit } from '../shared/types';
 
 // "See the outfit" and photo clean-up: calls to the proxy (server/api/[action].ts). The
@@ -81,7 +84,15 @@ export async function styleOutfit(
   const garments = chainOrder(outfit, byId);
   const items = await Promise.all(garments.map(prepare));
   const blob = await postForImage('style', { items }, onEvent);
-  await putImage(await lookKey(outfit, byId), blob);
+  const key = await lookKey(outfit, byId);
+  await withStorageLock('render-cache', async () => {
+    await putImage(key, blob);
+    const stored = await loadState();
+    const currentById = new Map(stored.garments.map((g) => [g.id, g]));
+    const currentKey = await lookKey(pruneOutfit(stored.outfit, currentById), currentById);
+    await pruneRenderCache(new Set([key, currentKey, ...stored.savedLooks.filter(isSaved).map((l) => l.key)]))
+      .catch((err) => console.warn('[cabine] cache cleanup failed', err));
+  });
   return blob;
 }
 

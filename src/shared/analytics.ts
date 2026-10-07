@@ -1,3 +1,5 @@
+import { withStorageLock } from './storage-lock.ts';
+
 // Product analytics (D23): funnel events queued locally, sent in batches by the
 // panel to POST /api/events. Only event names and small facts go in: category,
 // store domain, counts, timings, random garment ids. Never photos, product
@@ -31,6 +33,7 @@ export type EventName =
 
 export type EventProps = Record<string, string | number | boolean | string[]>;
 export interface QueuedEvent {
+  id?: string; // legacy queued events may have no id
   name: EventName;
   at: number;
   props: EventProps;
@@ -43,9 +46,11 @@ const MAX_QUEUE = 500; // offline for a long time: keep the newest
 export async function track(ctx: Context, name: EventName, props: EventProps = {}): Promise<void> {
   try {
     const key = queueKey(ctx);
-    const queue = ((await chrome.storage.local.get(key))[key] as QueuedEvent[] | undefined) ?? [];
-    queue.push({ name, at: Date.now(), props });
-    await chrome.storage.local.set({ [key]: queue.slice(-MAX_QUEUE) });
+    await withStorageLock(key, async () => {
+      const queue = ((await chrome.storage.local.get(key))[key] as QueuedEvent[] | undefined) ?? [];
+      queue.push({ id: crypto.randomUUID(), name, at: Date.now(), props });
+      await chrome.storage.local.set({ [key]: queue.slice(-MAX_QUEUE) });
+    });
   } catch (err) {
     console.warn('[cabine] could not queue event', name, err); // analytics must never break the product
   }
@@ -59,3 +64,15 @@ export const domainOf = (url?: string) => {
     return '';
   }
 };
+
+// Remove only acknowledged events; arrivals and queue truncation cannot remove
+// unrelated events while a network request is in flight.
+export async function acknowledgeEvents(ctx: Context, batch: QueuedEvent[]): Promise<void> {
+  const key = queueKey(ctx);
+  const identity = (e: QueuedEvent) => e.id ?? JSON.stringify(e);
+  const sent = new Set(batch.map(identity));
+  await withStorageLock(key, async () => {
+    const queue = ((await chrome.storage.local.get(key))[key] as QueuedEvent[] | undefined) ?? [];
+    await chrome.storage.local.set({ [key]: queue.filter((e) => !sent.has(identity(e))) });
+  });
+}
