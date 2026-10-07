@@ -45,8 +45,50 @@ export function account(): Account | null {
   return { email, initial: (user.firstName?.[0] ?? email[0] ?? '?').toUpperCase() };
 }
 
-export function signIn(): void {
-  clerk?.openSignIn({});
+// Email (one-time code or password) in Clerk's own sign-in sheet. Its Google
+// button is hidden: Clerk's OAuth redirect can't return to a side panel.
+export function signInWithEmail(): void {
+  clerk?.openSignIn({
+    appearance: { elements: { socialButtonsRoot: { display: 'none' }, dividerRow: { display: 'none' } } },
+  });
+}
+
+// Google through Chrome's own sign-in window (chrome.identity), which can return
+// to the extension. Google hands back an ID token; Clerk signs in with it (or
+// creates the account), the same exchange as Google One Tap.
+export async function signInWithGoogle(): Promise<void> {
+  const client = clerk?.client;
+  // The Google client id Clerk is configured with; Clerk publishes it to its frontend.
+  const clientId = (clerk as unknown as { __unstable__environment?: { displayConfig?: { googleOneTapClientId?: string } } })
+    ?.__unstable__environment?.displayConfig?.googleOneTapClientId;
+  if (!clerk || !client || !clientId) throw new Error('Google sign-in isn’t set up');
+
+  const nonce = crypto.randomUUID();
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.search = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'id_token',
+    redirect_uri: chrome.identity.getRedirectURL(),
+    scope: 'openid email profile',
+    nonce,
+    prompt: 'select_account',
+  }).toString();
+
+  const back = await chrome.identity.launchWebAuthFlow({ url: url.toString(), interactive: true });
+  const token = back && new URLSearchParams(new URL(back).hash.slice(1)).get('id_token');
+  if (!token) throw new Error('Google didn’t return a sign-in');
+
+  const attempt = await client.signIn
+    .create({ strategy: 'google_one_tap', token } as never)
+    .catch((err: { errors?: { code?: string }[] }) => {
+      // First time with this Google account: create the Cabine account instead.
+      if (err?.errors?.[0]?.code === 'external_account_not_found') {
+        return client.signUp.create({ strategy: 'google_one_tap', token } as never);
+      }
+      throw err;
+    });
+  if (attempt.status !== 'complete' || !attempt.createdSessionId) throw new Error('Google sign-in didn’t finish');
+  await clerk.setActive({ session: attempt.createdSessionId });
 }
 
 export async function signOut(): Promise<void> {

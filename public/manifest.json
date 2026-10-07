@@ -30,6 +30,7 @@
     "sidePanel",
     "contextMenus",
     "storage",
-    "cookies"
+    "cookies",
+    "identity"
   ]
 }

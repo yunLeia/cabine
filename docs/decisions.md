@@ -570,8 +570,11 @@ Applied from the user's design-system board to the panel, the phone upload page 
 - **Tested in Chrome (revision):**
   - **Bot sign-up protection is off** (Clerk → Protect → Rules). Its CAPTCHA can't load in an extension, so every sign-up failed "security validations".
   - **Email works. Google does not:** Clerk's extension SDK doesn't support OAuth in a popup or side panel, because Chrome can't send the provider's redirect back to the extension. The button spun and nothing happened.
-  - **For now, email only:** Google is turned off in Clerk so the broken button doesn't show.
-  - Google can come back later in one of two ways:
-    - `chrome.identity.launchWebAuthFlow`, with the Google token handed to Clerk
-    - a Clerk Sync Host web page on the server's domain
+  - **Google, revised (user wants it):** sign in through Chrome's own Google window instead of Clerk's redirect.
+    - `chrome.identity.launchWebAuthFlow` asks Google for an ID token (new permission `identity`, no install warning).
+    - Clerk signs in with that token using its Google One Tap exchange (`google_one_tap`), or creates the account the first time.
+    - The Google client id is the one Clerk already publishes to its frontend, so there's no new config.
+    - Google's console must allow the redirect `https://<extension id>.chromiumapp.org/`.
+  - "Sign in" now opens a small menu: **Continue with Google** / **Continue with email**. Clerk's sheet is used only for email, with its broken Google button hidden.
+  - Not chosen: a Clerk Sync Host web page (users leave the extension; Clerk doesn't fully support it in side panels).
 - **Next:** step 2, closet and saved-look sync (first upload, then both ways). Step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.

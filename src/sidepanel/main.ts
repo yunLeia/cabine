@@ -9,7 +9,7 @@ import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSa
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
-import { signIn as authSignIn, signOut as authSignOut, startAuth } from './auth';
+import { signInWithEmail, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
 import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
@@ -205,8 +205,24 @@ const actions: Actions = {
     render();
   },
 
-  signIn() {
-    authSignIn();
+  async signInGoogle() {
+    state.accountOpen = false;
+    render();
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      // Closing Google's window isn't an error worth showing.
+      if (!/did not approve|canceled|cancelled/i.test(String(err))) {
+        console.warn('[cabine] Google sign-in failed', err);
+        notify('Google sign-in didn’t work. Try email instead.');
+      }
+    }
+  },
+
+  signInEmail() {
+    state.accountOpen = false;
+    render();
+    signInWithEmail();
   },
 
   async signOut() {
