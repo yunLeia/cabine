@@ -617,4 +617,6 @@ Applied from the user's design-system board to the panel, the phone upload page 
 - **Still to do at publish:**
   - Clerk production instance (`pk_live_`).
   - The store build's origin added to Clerk allowed origins and `CLERK_AUTHORIZED_PARTIES`.
-  - Google sign-in (blocked on the Google client's redirect URI).
+- **Google sign-in works** (tested in Chrome).
+  - The last bug: Clerk's settings field had been renamed (`__internal_environment`), so the client id read as missing. It now falls back to Clerk's public `/v1/environment`.
+  - The Google client must list `https://<extension id>.chromiumapp.org/` as a redirect; the store build will need its own entry.
