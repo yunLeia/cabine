@@ -7,6 +7,10 @@
 //   POST /api/inbox-session   the phone page checks its token (token only, no client key)
 //   POST /api/inbox-upload    the phone page uploads one photo (token only, no client key)
 //   POST /api/events          the extension's product-analytics events (D23)
+//   POST /api/closet          signed in: this account's synced closet and saved looks (D32)
+//   POST /api/closet-put      ...merge changed or deleted records into it
+//   POST /api/closet-image    ...fetch one photo
+//   POST /api/closet-image-put ...store one photo
 //   GET  /api/cleanup         daily cron: deletes expired sessions, unclaimed photos and old cached images
 //
 // The extension sends original garment images, categories and titles. This
@@ -341,6 +345,7 @@ const sessionPath = (id: string) => `sessions/${id}.json`;
 const inboxPrefix = (id: string) => `inbox/${id}/`;
 
 class GoneError extends Error {}
+class AuthError extends Error {} // needs a signed-in account
 
 async function readSession(token: unknown, deps: Deps) {
   if (typeof token !== 'string' || !TOKEN_FORMAT.test(token)) throw new RequestError('invalid token');
@@ -450,6 +455,120 @@ export async function cleanupStorage(deps: Deps): Promise<Record<keyof typeof RE
   return removed;
 }
 
+// ---- Account closet: My Closet and Saved Looks follow a signed-in account (D32) -----------
+// The extension keeps working from its local copy (chrome.storage + IndexedDB);
+// this is the account's copy it syncs with. One small manifest per account holds
+// every record (a garment or a saved look) with when it last changed; deletions
+// stay as tombstones so other computers learn about them. Photos are separate
+// private files. Newer change wins per record. The account id is hashed in paths.
+
+export interface SyncRecord {
+  id: string; // "g:<garment id>" or "l:<look key>"
+  updatedAt: number;
+  deleted?: boolean;
+  images?: string[]; // the photo ids this record needs
+  data?: Record<string, unknown>; // the garment or look, as the extension stores it
+}
+interface Manifest {
+  records: Record<string, SyncRecord>;
+}
+
+const RECORD_ID = /^[gl]:[A-Za-z0-9_.:-]{1,120}$/;
+const IMAGE_ID = /^[A-Za-z0-9_.:-]{1,120}$/;
+const MAX_RECORDS = 1000; // live records per account
+const MAX_RECORD_BYTES = 4000;
+const MAX_PUT = 100;
+
+const accountDir = (account: string) => `accounts/${sha(`account:${account}`)}`;
+const manifestPath = (account: string) => `${accountDir(account)}/closet.json`;
+const accountImagePath = (account: string, imageId: string) => `${accountDir(account)}/images/${sha(imageId)}`;
+
+async function signedIn(request: Request, deps: Deps): Promise<string> {
+  const { account } = await who(request, deps);
+  if (!account) throw new AuthError('Sign in to sync your closet.');
+  return account;
+}
+
+async function readManifest(account: string, deps: Deps) {
+  const stored = await deps.store.read(manifestPath(account));
+  const manifest = stored ? (JSON.parse(Buffer.from(stored.bytes).toString()) as Manifest) : { records: {} };
+  return { manifest, etag: stored ? stored.etag : null };
+}
+
+function parseRecord(raw: unknown, t: number): SyncRecord {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  if (typeof r.id !== 'string' || !RECORD_ID.test(r.id)) throw new RequestError('record id is invalid');
+  if (typeof r.updatedAt !== 'number' || !Number.isFinite(r.updatedAt)) throw new RequestError('record updatedAt is invalid');
+  const updatedAt = Math.min(r.updatedAt, t); // a clock running ahead can't win every future change
+  if (r.deleted === true) return { id: r.id, updatedAt, deleted: true };
+  const images = Array.isArray(r.images) ? r.images : [];
+  if (images.length > 3 || !images.every((x) => typeof x === 'string' && IMAGE_ID.test(x))) throw new RequestError('record images are invalid');
+  if (typeof r.data !== 'object' || r.data === null || Array.isArray(r.data)) throw new RequestError('record data is invalid');
+  if (JSON.stringify(r.data).length > MAX_RECORD_BYTES) throw new RequestError('record data is too large');
+  return { id: r.id, updatedAt, images: images as string[], data: r.data as Record<string, unknown> };
+}
+
+async function closetList(request: Request, deps: Deps) {
+  const account = await signedIn(request, deps);
+  const { manifest } = await readManifest(account, deps);
+  return { records: Object.values(manifest.records) };
+}
+
+async function closetPut(request: Request, body: Record<string, unknown>, deps: Deps) {
+  const account = await signedIn(request, deps);
+  if (!Array.isArray(body.records) || body.records.length > MAX_PUT) throw new RequestError(`records must be an array of at most ${MAX_PUT}`);
+  const incoming = body.records.map((r) => parseRecord(r, now(deps)));
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const { manifest, etag } = await readManifest(account, deps);
+    const orphaned: string[] = [];
+    for (const r of incoming) {
+      const cur = manifest.records[r.id];
+      if (cur && cur.updatedAt >= r.updatedAt) continue; // ours is as new or newer
+      if (r.deleted && cur?.images) orphaned.push(...cur.images);
+      manifest.records[r.id] = r;
+    }
+    if (Object.values(manifest.records).filter((r) => !r.deleted).length > MAX_RECORDS) {
+      throw new RequestError(`An account holds at most ${MAX_RECORDS} pieces and looks.`);
+    }
+    try {
+      await deps.store.write(manifestPath(account), new TextEncoder().encode(JSON.stringify(manifest)), 'application/json', etag);
+    } catch (err) {
+      if (!(err instanceof ConflictError)) throw err; // another computer synced meanwhile: merge again
+      await new Promise((r) => setTimeout(r, 50 + Math.random() * 150 * (attempt + 1)));
+      continue;
+    }
+    // Photos of deleted records go too, unless a live record still uses them.
+    const inUse = new Set(Object.values(manifest.records).flatMap((r) => (r.deleted ? [] : r.images ?? [])));
+    const gone = [...new Set(orphaned)].filter((id) => !inUse.has(id));
+    if (gone.length) await deps.store.remove(gone.map((id) => accountImagePath(account, id))).catch(() => {});
+    return { records: Object.values(manifest.records) };
+  }
+  throw new Error('Could not update the closet');
+}
+
+const imageMime = (b: Uint8Array) =>
+  b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : b[0] === 0x89 && b[1] === 0x50 ? 'image/png' : 'image/webp';
+
+async function closetImagePut(request: Request, body: Record<string, unknown>, deps: Deps) {
+  const account = await signedIn(request, deps);
+  if (typeof body.id !== 'string' || !IMAGE_ID.test(body.id)) throw new RequestError('image id is invalid');
+  const [image] = parseItems({ items: [{ category: 'top', image: body.image }] }); // same type and size checks
+  try {
+    await deps.store.write(accountImagePath(account, body.id), image.bytes, image.mime, null);
+  } catch (err) {
+    if (!(err instanceof ConflictError)) throw err; // already there (a retry): photo ids never change content
+  }
+  return { ok: true };
+}
+
+async function closetImage(request: Request, body: Record<string, unknown>, deps: Deps) {
+  const account = await signedIn(request, deps);
+  if (typeof body.id !== 'string' || !IMAGE_ID.test(body.id)) throw new RequestError('image id is invalid');
+  const stored = await deps.store.read(accountImagePath(account, body.id));
+  if (!stored) throw new GoneError('This photo is no longer in your account.');
+  return { image: dataUri(stored.bytes, imageMime(stored.bytes)) };
+}
+
 // ---- Analytics: accept a batch of known events, drop anything malformed ------------------------
 
 export const EVENT_NAMES = new Set([
@@ -529,7 +648,7 @@ function authorized(request: Request, clientKey: string): boolean {
 }
 
 const STREAMING = new Set(['style', 'extract']); // paid work: NDJSON progress + result
-const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events']); // the extension
+const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events', 'closet', 'closet-put', 'closet-image', 'closet-image-put']); // the extension
 const TOKEN_ONLY = new Set(['inbox-session', 'inbox-upload']); // the phone page: its token is the credential
 
 export function createHandler(getDeps: () => Deps) {
@@ -541,7 +660,7 @@ export function createHandler(getDeps: () => Deps) {
 
     let body: Record<string, unknown>;
     try {
-      body = action === 'upload-session' ? {} : ((await request.json()) as Record<string, unknown>);
+      body = action === 'upload-session' || action === 'closet' ? {} : ((await request.json()) as Record<string, unknown>);
     } catch {
       return Response.json({ error: 'invalid JSON body' }, { status: 400 });
     }
@@ -554,11 +673,16 @@ export function createHandler(getDeps: () => Deps) {
           : action === 'inbox-upload' ? await uploadToInbox(body, deps)
           : action === 'inbox' ? await pullInbox(body, deps)
           : action === 'events' ? await recordEvents(request, body, deps)
+          : action === 'closet' ? await closetList(request, deps)
+          : action === 'closet-put' ? await closetPut(request, body, deps)
+          : action === 'closet-image' ? await closetImage(request, body, deps)
+          : action === 'closet-image-put' ? await closetImagePut(request, body, deps)
           : await ackInbox(body, deps);
         return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
       } catch (err) {
         if (err instanceof RequestError) return Response.json({ error: err.message }, { status: 400 });
         if (err instanceof GoneError) return Response.json({ error: err.message }, { status: 410 });
+        if (err instanceof AuthError) return Response.json({ error: err.message }, { status: 403 });
         console.error(`[${action}]`, err);
         return Response.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
       }

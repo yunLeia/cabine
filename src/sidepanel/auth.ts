@@ -12,6 +12,7 @@ type Clerk = ReturnType<typeof createClerkClient>;
 let clerk: Clerk | null = null;
 
 export interface Account {
+  id: string; // the Clerk user id
   email: string;
   initial: string;
 }
@@ -42,7 +43,7 @@ export function account(): Account | null {
   const user = clerk?.user;
   if (!user) return null;
   const email = user.primaryEmailAddress?.emailAddress ?? '';
-  return { email, initial: (user.firstName?.[0] ?? email[0] ?? '?').toUpperCase() };
+  return { id: user.id, email, initial: (user.firstName?.[0] ?? email[0] ?? '?').toUpperCase() };
 }
 
 export function signIn(): void {

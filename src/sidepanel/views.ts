@@ -3,6 +3,7 @@ import { productName } from '../shared/infer';
 import { h } from './dom';
 import { icon } from './icons';
 import { account, authAvailable } from './auth';
+import { syncStatus, type SyncStatus } from './sync';
 import { imageUrl } from './image-urls';
 import { qrSvg, type PhoneSession } from './phone';
 
@@ -489,6 +490,13 @@ export function headerView(s: ViewState, a: Actions): HTMLElement {
   return h('header', { class: 'app-header' }, home, h('div', { class: 'header-right' }, h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')), accountButton(s, a)));
 }
 
+const SYNC_LABEL: Record<SyncStatus, string> = {
+  off: '',
+  syncing: 'Saving your closet to your account…',
+  synced: 'Closet and saved looks are in your account',
+  failed: 'Couldn’t sync just now. Trying again soon.',
+};
+
 // Optional sign-in (D32): "Sign in" when signed out; your initial, with a small
 // menu (email, Sign out), when signed in.
 function accountButton(s: ViewState, a: Actions): HTMLElement | null {
@@ -504,6 +512,7 @@ function accountButton(s: ViewState, a: Actions): HTMLElement | null {
         'div',
         { class: 'menu account-menu', role: 'menu' },
         h('p', { class: 'account-email small muted' }, me.email),
+        h('p', { class: 'account-sync small muted' }, SYNC_LABEL[syncStatus()]),
         h('button', { type: 'button', role: 'menuitem', onclick: a.signOut }, 'Sign out'),
       ),
   );

@@ -483,6 +483,53 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(provider.calls.length, 2);
   }],
 
+  ['closet sync: needs a signed-in account; each account sees only its own records and photos', async () => {
+    const { deps } = setup();
+    deps.verifySession = async (token) => ({ 'tok-a': 'user_a', 'tok-b': 'user_b' })[token] ?? null;
+    assert.equal((await call(deps, {}, 'secret', 'closet')).status, 403, 'anonymous installs have no account closet');
+    const rec = { id: 'g:coat-1', updatedAt: 1000, images: ['img-1'], data: { id: 'coat-1', category: 'outerwear' } };
+    assert.equal((await call(deps, { id: 'img-1', image: img('coat') }, 'secret', 'closet-image-put', USER, 'tok-a')).status, 200);
+    assert.equal((await call(deps, { records: [rec] }, 'secret', 'closet-put', USER, 'tok-a')).status, 200);
+    // Another computer, same account.
+    const mine = await call(deps, {}, 'secret', 'closet', OTHER_USER, 'tok-a');
+    assert.deepEqual(mine.body.records, [rec]);
+    const back = (await call(deps, { id: 'img-1' }, 'secret', 'closet-image', OTHER_USER, 'tok-a')).body.image;
+    assert.equal(back.split(',')[1], img('coat').split(',')[1], 'the same photo comes back');
+    // A different account sees nothing, not even with the same photo id.
+    assert.deepEqual((await call(deps, {}, 'secret', 'closet', USER, 'tok-b')).body.records, []);
+    assert.equal((await call(deps, { id: 'img-1' }, 'secret', 'closet-image', USER, 'tok-b')).status, 410);
+  }],
+
+  ['closet sync: the newer change wins; a deletion removes the photos; bad records are refused', async () => {
+    const { deps, store } = setup();
+    deps.verifySession = async () => 'user_a';
+    const put = (records: unknown[]) => call(deps, { records }, 'secret', 'closet-put', USER, 'tok');
+    await call(deps, { id: 'img-1', image: img('coat') }, 'secret', 'closet-image-put', USER, 'tok');
+    await put([{ id: 'g:1', updatedAt: 2000, images: ['img-1'], data: { category: 'top' } }]);
+    await put([{ id: 'g:1', updatedAt: 1000, images: ['img-1'], data: { category: 'bottom' } }]); // older: ignored
+    let records = (await call(deps, {}, 'secret', 'closet', USER, 'tok')).body.records;
+    assert.equal(records[0].data.category, 'top');
+    assert.equal([...store.files.keys()].filter((k) => k.includes('/images/')).length, 1);
+    await put([{ id: 'g:1', updatedAt: 3000, deleted: true }]);
+    records = (await call(deps, {}, 'secret', 'closet', USER, 'tok')).body.records;
+    assert.deepEqual(records, [{ id: 'g:1', updatedAt: 3000, deleted: true }], 'a tombstone stays so other computers learn');
+    assert.equal([...store.files.keys()].filter((k) => k.includes('/images/')).length, 0, 'its photo is deleted');
+    assert.equal((await put([{ id: 'x:1', updatedAt: 1, data: {} }])).status, 400);
+    assert.equal((await put([{ id: 'g:2', updatedAt: 1, data: { big: 'x'.repeat(5000) } }])).status, 400);
+    assert.equal((await put([{ id: 'g:3', updatedAt: Date.now() + 1e9, data: {} }])).status, 200);
+    records = (await call(deps, {}, 'secret', 'closet', USER, 'tok')).body.records;
+    assert.ok(records.find((r: { id: string }) => r.id === 'g:3').updatedAt <= Date.now(), 'a clock running ahead is clamped');
+  }],
+
+  ['closet sync: two computers saving at once both land', async () => {
+    const { deps } = setup();
+    deps.verifySession = async () => 'user_a';
+    await Promise.all(
+      Array.from({ length: 6 }, (_, i) => call(deps, { records: [{ id: `g:${i}`, updatedAt: 1, data: {} }] }, 'secret', 'closet-put', USER, 'tok')),
+    );
+    assert.equal((await call(deps, {}, 'secret', 'closet', USER, 'tok')).body.records.length, 6);
+  }],
+
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
     const { deps, recorded } = setup();
     const r = await call(deps, {

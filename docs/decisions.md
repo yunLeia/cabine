@@ -577,4 +577,22 @@ Applied from the user's design-system board to the panel, the phone upload page 
     - Google's console must allow the redirect `https://<extension id>.chromiumapp.org/`.
   - The Sign in screen stays Clerk's own sheet (the user preferred it to a Google / email menu). A click on its Google button is caught before Clerk sees it and runs the Chrome-window flow instead.
   - Not chosen: a Clerk Sync Host web page (users leave the extension; Clerk doesn't fully support it in side panels).
-- **Next:** step 2, closet and saved-look sync (first upload, then both ways). Step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.
+- **Step 2: My Closet and Saved Looks sync with the account.**
+  - **Server (`/api/closet`, `closet-put`, `closet-image`, `closet-image-put`):** signed-in accounts only (403 otherwise).
+    - One small manifest per account in private Blob (`accounts/<hashed account>/closet.json`) holds every record: a closet garment or a saved look, with its data, photo ids and when it last changed.
+    - Photos are separate private files beside it.
+    - Updates merge with an etag retry, so two computers saving at once both land.
+    - The newer change wins per record. A client clock running ahead is clamped to the server's.
+    - A deletion stays as a tombstone so other computers learn about it, and its photos are deleted.
+    - Limits: 1,000 live records per account, small records, the same photo checks as rendering.
+  - **Chose Blob over Neon tables:** the existing store already has etag concurrency and the in-memory test double, and needs no schema or migration. Sync reads one file per account. Revisit if per-record queries are ever needed.
+  - **Extension (`sidepanel/sync.ts`, plan in `shared/sync-plan.ts`):**
+    - The local copy stays the one the panel works from; the account's copy is synced with it.
+    - Sync runs on sign-in, on panel focus, and 1.5 s after a closet or saved-look change. Web Locks keep it to one at a time across panels. A failure retries in a minute.
+    - A snapshot of each record at the last sync tells "edited here" from "edited elsewhere", and "deleted here" from "new elsewhere". A look saved again after a deletion comes back, because look keys repeat.
+    - Photos go up before their record, so another computer never gets a record without its photo.
+    - What travels: a garment's category, title, source page, photo ids and dates. Clean-up progress and "last used" stay local.
+    - The first sign-in uploads the existing closet. Signing in as a different account merges this computer's closet into it. Signing out keeps everything local.
+  - The account menu shows the sync state.
+  - **Cost:** storage only, ~6–15 MB per person. The first 1 GB is free, then about $0.02 per GB-month.
+- **Next:** step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.

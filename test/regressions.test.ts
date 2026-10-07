@@ -5,6 +5,7 @@ import { acknowledgeEvents, queueKey, track } from '../src/shared/analytics.ts';
 import { recoverInterruptedCleanups } from '../src/shared/cleanup.ts';
 import { chainOrder, pruneOutfit } from '../src/shared/outfit.ts';
 import { obsoleteRenderIds, putImage } from '../src/shared/images.ts';
+import { fingerprint, planSync } from '../src/shared/sync-plan.ts';
 import type { Garment } from '../src/shared/types.ts';
 
 let data: Record<string, unknown> = {};
@@ -106,4 +107,49 @@ test('an image write waits for commit and rejects a transaction abort after requ
   tx.oncomplete();
   assert.equal(await committed, 'image');
   assert.equal(closed, true);
+});
+
+// ---- Account sync plan (D32 step 2) ----
+
+const rec = (id: string, data: Record<string, unknown>) => ({ id, images: [`img-${id}`], data });
+
+test('sync: first sign-in uploads the local closet; new pieces from another computer come down', () => {
+  const plan = planSync([rec('g:a', { c: 'top' })], [{ id: 'g:b', updatedAt: 1, data: { c: 'shoes' } }], {}, 100);
+  assert.deepEqual(plan.push.map((r) => r.id), ['g:a']);
+  assert.deepEqual(plan.pull.map((r) => r.id), ['g:b']);
+  assert.deepEqual(Object.keys(plan.known).sort(), ['g:a', 'g:b']);
+});
+
+test('sync: an edit here goes up; an edit elsewhere comes down; nothing changes when both match', () => {
+  const known = { 'g:a': fingerprint({ c: 'top' }), 'g:b': fingerprint({ c: 'top' }), 'g:c': fingerprint({ c: 'top' }) };
+  const plan = planSync(
+    [rec('g:a', { c: 'bottom' }), rec('g:b', { c: 'top' }), rec('g:c', { c: 'top' })],
+    [
+      { id: 'g:a', updatedAt: 1, data: { c: 'top' } },
+      { id: 'g:b', updatedAt: 2, data: { c: 'dress' } },
+      { id: 'g:c', updatedAt: 1, data: { c: 'top' } },
+    ],
+    known,
+    100,
+  );
+  assert.deepEqual(plan.push.map((r) => [r.id, r.data?.c]), [['g:a', 'bottom']]);
+  assert.deepEqual(plan.pull.map((r) => [r.id, r.data?.c]), [['g:b', 'dress']]);
+});
+
+test('sync: a deletion here sends a tombstone; a deletion elsewhere removes it here', () => {
+  const known = { 'g:a': fingerprint({}), 'l:b': fingerprint({}) };
+  const plan = planSync([rec('l:b', {})], [{ id: 'g:a', updatedAt: 1, data: {} }, { id: 'l:b', updatedAt: 2, deleted: true }], known, 100);
+  assert.deepEqual(plan.push, [{ id: 'g:a', updatedAt: 100, deleted: true }]);
+  assert.deepEqual(plan.removeLocal, ['l:b']);
+  assert.deepEqual(plan.known, {});
+});
+
+test('sync: fingerprints ignore key order and missing fields', () => {
+  assert.equal(fingerprint({ a: 1, b: undefined, c: { y: 2, x: 1 } }), fingerprint({ c: { x: 1, y: 2 }, a: 1 }));
+});
+
+test('sync: a look saved again after being deleted comes back instead of being removed', () => {
+  const plan = planSync([rec('l:x', { k: 1 })], [{ id: 'l:x', updatedAt: 5, deleted: true }], {}, 100);
+  assert.deepEqual(plan.removeLocal, []);
+  assert.deepEqual(plan.push.map((r) => [r.id, r.deleted]), [['l:x', undefined]]);
 });

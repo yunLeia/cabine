@@ -9,7 +9,8 @@ import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSa
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
-import { interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
+import { requestSync, onSyncStatus } from './sync';
+import { account, interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
 import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
@@ -511,7 +512,9 @@ document.addEventListener('click', (e) => {
 
 chrome.storage.local.onChanged.addListener((changes) => {
   if (KEYS.garments in changes || KEYS.outfit in changes || KEYS.draft in changes || KEYS.savedLooks in changes) void refresh();
+  if (KEYS.garments in changes || KEYS.savedLooks in changes) requestSync(); // signed in: My Closet and Saved Looks follow the account
 });
+window.addEventListener('focus', () => requestSync(0));
 
 void (async () => {
   await recoverInterruptedCleanups();
@@ -537,7 +540,15 @@ interceptGoogle(async () => {
     notify(`Google sign-in didn’t work: ${err instanceof Error ? err.message : String(err)}`);
   }
 });
+onSyncStatus(() => render());
+let signedInAs: string | undefined;
 void startAuth(() => {
+  // Clerk also calls this on token refreshes; sync only when who's signed in changes.
+  const id = account()?.id;
+  if (id !== signedInAs) {
+    signedInAs = id;
+    requestSync(0);
+  }
   if (!document.getElementById('header')) return;
   render();
 });

@@ -52,6 +52,12 @@ async function toJpegDataUri(blob: Blob): Promise<string> {
   return blobToDataUri(jpeg);
 }
 
+// A local photo as the account's copy (D32 sync): as it is when the server takes
+// it, otherwise the same JPEG the renders get.
+export async function uploadableImage(blob: Blob): Promise<string> {
+  return ['image/jpeg', 'image/png', 'image/webp'].includes(blob.type) && blob.size < 2_500_000 ? blobToDataUri(blob) : toJpegDataUri(blob);
+}
+
 const blobToDataUri = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

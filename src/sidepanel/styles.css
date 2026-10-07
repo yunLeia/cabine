@@ -104,7 +104,8 @@ p { margin: 0; }
 }
 .avatar:hover, .avatar[aria-expanded='true'] { background: var(--accent-hover); }
 .account-menu { top: calc(100% + 8px); right: 0; min-width: 200px; }
-.account-email { padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-email { padding: 6px 10px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-sync { padding: 0 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; font-size: 11px; }
 .brand-mark { height: 20px; width: auto; display: block; }
 @media (prefers-reduced-motion: reduce) { .nav::after, .btn { transition: none; } }
 
