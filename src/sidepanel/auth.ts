@@ -45,12 +45,26 @@ export function account(): Account | null {
   return { email, initial: (user.firstName?.[0] ?? email[0] ?? '?').toUpperCase() };
 }
 
-// Email (one-time code or password) in Clerk's own sign-in sheet. Its Google
-// button is hidden: Clerk's OAuth redirect can't return to a side panel.
-export function signInWithEmail(): void {
-  clerk?.openSignIn({
-    appearance: { elements: { socialButtonsRoot: { display: 'none' }, dividerRow: { display: 'none' } } },
-  });
+export function signIn(): void {
+  clerk?.openSignIn({});
+}
+
+// Clerk's own Google button tries a web redirect, which can't come back to a
+// side panel. Catch the click before Clerk sees it and run `run` instead.
+export function interceptGoogle(run: () => void): void {
+  document.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target as Element | null;
+      if (!target?.closest('[class*="cl-socialButtons"][class*="__google"]')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      clerk?.closeSignIn();
+      clerk?.closeSignUp();
+      run();
+    },
+    true,
+  );
 }
 
 // Google through Chrome's own sign-in window (chrome.identity), which can return
@@ -74,7 +88,11 @@ export async function signInWithGoogle(): Promise<void> {
     prompt: 'select_account',
   }).toString();
 
-  const back = await chrome.identity.launchWebAuthFlow({ url: url.toString(), interactive: true });
+  const back = await chrome.identity.launchWebAuthFlow({ url: url.toString(), interactive: true }).catch((err: Error) => {
+    // Chrome says only "could not be loaded" when Google rejects the request
+    // (most often: this redirect isn't allowed on the Google client yet).
+    throw new Error(`${err.message} (redirect ${chrome.identity.getRedirectURL()})`);
+  });
   const token = back && new URLSearchParams(new URL(back).hash.slice(1)).get('id_token');
   if (!token) throw new Error('Google didn’t return a sign-in');
 

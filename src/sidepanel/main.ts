@@ -9,7 +9,7 @@ import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSa
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
 import { syncImageUrls } from './image-urls';
 import { startFlushing, trackPanel } from './analytics';
-import { signInWithEmail, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
+import { interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
 import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
@@ -205,24 +205,8 @@ const actions: Actions = {
     render();
   },
 
-  async signInGoogle() {
-    state.accountOpen = false;
-    render();
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      // Closing Google's window isn't an error worth showing.
-      if (!/did not approve|canceled|cancelled/i.test(String(err))) {
-        console.warn('[cabine] Google sign-in failed', err);
-        notify('Google sign-in didn’t work. Try email instead.');
-      }
-    }
-  },
-
-  signInEmail() {
-    state.accountOpen = false;
-    render();
-    signInWithEmail();
+  signIn() {
+    authSignIn();
   },
 
   async signOut() {
@@ -542,6 +526,17 @@ void (async () => {
 void trackPanel('extension_opened');
 startFlushing();
 // Optional sign-in: redraw the header when someone signs in or out.
+// Clerk's Google button runs Google through Chrome's own window (auth.ts).
+interceptGoogle(async () => {
+  try {
+    await signInWithGoogle();
+  } catch (err) {
+    // Closing Google's window isn't an error worth showing.
+    if (/did not approve|canceled|cancelled/i.test(String(err))) return;
+    console.warn('[cabine] Google sign-in failed', err);
+    notify(`Google sign-in didn’t work: ${err instanceof Error ? err.message : String(err)}`);
+  }
+});
 void startAuth(() => {
   if (!document.getElementById('header')) return;
   render();

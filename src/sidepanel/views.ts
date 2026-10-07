@@ -66,8 +66,7 @@ export interface Actions {
   usePhone(): void;
   toggleUpload(open: boolean): void;
   toggleSavedEdit(on: boolean): void;
-  signInGoogle(): void;
-  signInEmail(): void;
+  signIn(): void;
   signOut(): void;
   toggleAccount(open: boolean): void;
   deleteSavedLook(l: SavedLook): void;
@@ -490,24 +489,12 @@ export function headerView(s: ViewState, a: Actions): HTMLElement {
   return h('header', { class: 'app-header' }, home, h('div', { class: 'header-right' }, h('nav', {}, nav('saved', 'Saved Looks'), nav('cabine', 'In Cabine')), accountButton(s, a)));
 }
 
-// Optional sign-in (D32): "Sign in" opens a small menu (Google, or email);
-// signed in, your initial opens one with your email and Sign out.
+// Optional sign-in (D32): "Sign in" when signed out; your initial, with a small
+// menu (email, Sign out), when signed in.
 function accountButton(s: ViewState, a: Actions): HTMLElement | null {
   if (!authAvailable()) return null;
   const me = account();
-  if (!me)
-    return h(
-      'div',
-      { class: 'account-wrap' },
-      h('button', { type: 'button', class: 'nav sign-in', 'aria-expanded': s.accountOpen, onclick: () => a.toggleAccount(!s.accountOpen) }, 'Sign in'),
-      s.accountOpen &&
-        h(
-          'div',
-          { class: 'menu account-menu', role: 'menu' },
-          h('button', { type: 'button', role: 'menuitem', onclick: a.signInGoogle }, 'Continue with Google'),
-          h('button', { type: 'button', role: 'menuitem', onclick: a.signInEmail }, 'Continue with email'),
-        ),
-    );
+  if (!me) return h('button', { type: 'button', class: 'nav sign-in', onclick: a.signIn }, 'Sign in');
   return h(
     'div',
     { class: 'account-wrap' },

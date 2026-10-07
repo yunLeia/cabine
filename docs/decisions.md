@@ -575,6 +575,6 @@ Applied from the user's design-system board to the panel, the phone upload page 
     - Clerk signs in with that token using its Google One Tap exchange (`google_one_tap`), or creates the account the first time.
     - The Google client id is the one Clerk already publishes to its frontend, so there's no new config.
     - Google's console must allow the redirect `https://<extension id>.chromiumapp.org/`.
-  - "Sign in" now opens a small menu: **Continue with Google** / **Continue with email**. Clerk's sheet is used only for email, with its broken Google button hidden.
+  - The Sign in screen stays Clerk's own sheet (the user preferred it to a Google / email menu). A click on its Google button is caught before Clerk sees it and runs the Chrome-window flow instead.
   - Not chosen: a Clerk Sync Host web page (users leave the extension; Clerk doesn't fully support it in side panels).
 - **Next:** step 2, closet and saved-look sync (first upload, then both ways). Step 3, phone uploads into the account, account deletion, privacy policy and store disclosure.
