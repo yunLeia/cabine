@@ -3,7 +3,7 @@ import { addGarments, loadState, removeGarment, setSavedLooks, updateGarment } f
 import { withStorageLock } from '../shared/storage-lock.ts';
 import { planSync, type LocalRecord, type SyncRecord } from '../shared/sync-plan';
 import { isSaved, type Garment, type Outfit, type SavedLook } from '../shared/types';
-import { account } from './auth';
+import { account, sessionToken } from './auth';
 import { postJson, uploadableImage } from './render';
 
 // My Closet and Saved Looks follow your account (D32 step 2). This computer keeps
@@ -42,6 +42,11 @@ const lookRecord = (l: SavedLook): LocalRecord => ({
   data: { key: l.key, outfit: l.outfit, createdAt: l.createdAt },
 });
 
+// Right after sign-in Clerk may not have a session token yet; without one the
+// server would treat this as an anonymous install. Wait a moment and retry.
+class NotReady extends Error {}
+let notReadyTries = 0;
+
 let timer: ReturnType<typeof setTimeout> | undefined;
 let running = false;
 let again = false;
@@ -64,7 +69,13 @@ async function run(): Promise<void> {
     // One sync at a time across every open panel.
     await navigator.locks.request('cabine-sync', syncOnce);
     setStatus(account() ? 'synced' : 'off');
+    notReadyTries = 0;
   } catch (err) {
+    if (err instanceof NotReady && notReadyTries++ < 20) {
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(), 3000);
+      return;
+    }
     console.warn('[cabine] sync failed', err);
     setStatus('failed');
     clearTimeout(timer);
@@ -81,6 +92,7 @@ async function run(): Promise<void> {
 async function syncOnce(): Promise<void> {
   const me = account();
   if (!me) return;
+  if (!(await sessionToken())) throw new NotReady('no session token yet');
   const stored = (await chrome.storage.local.get(META))[META] as Meta | undefined;
   const meta: Meta = stored?.account === me.id ? stored : { account: me.id, known: {} };
 
@@ -89,7 +101,10 @@ async function syncOnce(): Promise<void> {
     ...state.garments.filter((g) => g.location === 'closet').map(garmentRecord),
     ...state.savedLooks.filter(isSaved).map(lookRecord),
   ];
-  const { records: remote } = await postJson<{ records: SyncRecord[] }>('closet', {});
+  const { records: remote } = await postJson<{ records: SyncRecord[] }>('closet', {}).catch((err: Error) => {
+    // The server didn't take the token yet (just signed in): same as no token.
+    throw /sign in to sync/i.test(err.message) ? new NotReady(err.message) : err;
+  });
   const plan = planSync(local, remote, meta.known, Date.now());
 
   // Up: photos first, so a record never arrives on another computer before its
