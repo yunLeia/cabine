@@ -1039,7 +1039,14 @@ const AUTHORIZED_PARTIES = (process.env.CLERK_AUTHORIZED_PARTIES ?? 'chrome-exte
 
 async function verifyClerkSession(token: string): Promise<string | null> {
   if (!process.env.CLERK_SECRET_KEY) return null; // sign-in not configured: everyone is anonymous
-  const claims = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY, authorizedParties: AUTHORIZED_PARTIES });
+  // Some tokens come without an origin (azp), seen right after signing up. The
+  // signature, expiry and issuer are still checked; a token that names another
+  // origin is still refused.
+  let azp: unknown;
+  try {
+    azp = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).azp;
+  } catch {}
+  const claims = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY, ...(azp === undefined ? {} : { authorizedParties: AUTHORIZED_PARTIES }) });
   return typeof claims.sub === 'string' ? claims.sub : null;
 }
 

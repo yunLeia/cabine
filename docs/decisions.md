@@ -611,6 +611,9 @@ Applied from the user's design-system board to the panel, the phone upload page 
     - Synced data stays until the user removes it or deletes the account.
     - Uploads are cleaned up automatically.
   - **Store answers** in `docs/store-privacy.md`.
+- **Tokens without an origin:** some Clerk session tokens carry no `azp` (seen right after a new sign-up), and `verifyToken` with `authorizedParties` refuses them. That made Delete account and sync fail with 403.
+  - A token with no `azp` is now accepted on its signature, expiry and issuer.
+  - A token that names another origin is still refused.
 - **Still to do at publish:**
   - Clerk production instance (`pk_live_`).
   - The store build's origin added to Clerk allowed origins and `CLERK_AUTHORIZED_PARTIES`.
