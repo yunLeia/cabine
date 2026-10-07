@@ -332,7 +332,11 @@ export interface Identity {
 async function who(request: Request, deps: Deps): Promise<Identity> {
   const token = request.headers.get('x-cabine-session');
   if (token && deps.verifySession) {
-    const account = await deps.verifySession(token).catch(() => null);
+    const account = await deps.verifySession(token).catch((err) => {
+      // Why a sign-in wasn't accepted (expired, wrong origin, …); never the token itself.
+      console.log(JSON.stringify({ event: 'session_rejected', reason: String((err as { reason?: unknown })?.reason ?? err).slice(0, 200) }));
+      return null;
+    });
     if (account) return { id: `acct:${account}`, account };
   }
   const userId = request.headers.get('x-cabine-user') ?? '';
@@ -485,7 +489,10 @@ const accountImagePath = (account: string, imageId: string) => `${accountDir(acc
 
 async function signedIn(request: Request, deps: Deps): Promise<string> {
   const { account } = await who(request, deps);
-  if (!account) throw new AuthError('Sign in to sync your closet.');
+  if (!account) {
+    console.log(JSON.stringify({ event: 'closet_needs_account', hadToken: request.headers.has('x-cabine-session') }));
+    throw new AuthError('Sign in to sync your closet.');
+  }
   return account;
 }
 
