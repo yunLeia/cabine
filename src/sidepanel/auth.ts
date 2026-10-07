@@ -68,15 +68,30 @@ export function interceptGoogle(run: () => void): void {
   );
 }
 
+// The Google client id Clerk is configured with. Clerk publishes it in its
+// public settings; read them from the loaded instance (an internal field whose
+// name has changed between versions), else ask Clerk's frontend API.
+async function googleClientId(c: Clerk): Promise<string | undefined> {
+  type Env = { displayConfig?: { googleOneTapClientId?: string } };
+  const loaded = c as unknown as { __internal_environment?: Env; __unstable__environment?: Env };
+  const id = (loaded.__internal_environment ?? loaded.__unstable__environment)?.displayConfig?.googleOneTapClientId;
+  if (id) return id;
+  try {
+    const res = await fetch(`https://${c.frontendApi}/v1/environment`);
+    return ((await res.json()) as { display_config?: { google_one_tap_client_id?: string } }).display_config?.google_one_tap_client_id;
+  } catch {
+    return undefined;
+  }
+}
+
 // Google through Chrome's own sign-in window (chrome.identity), which can return
 // to the extension. Google hands back an ID token; Clerk signs in with it (or
 // creates the account), the same exchange as Google One Tap.
 export async function signInWithGoogle(): Promise<void> {
   const client = clerk?.client;
-  // The Google client id Clerk is configured with; Clerk publishes it to its frontend.
-  const clientId = (clerk as unknown as { __unstable__environment?: { displayConfig?: { googleOneTapClientId?: string } } })
-    ?.__unstable__environment?.displayConfig?.googleOneTapClientId;
-  if (!clerk || !client || !clientId) throw new Error('Google sign-in isn’t set up');
+  if (!clerk || !client) throw new Error('sign-in isn’t loaded yet');
+  const clientId = await googleClientId(clerk);
+  if (!clientId) throw new Error('Google isn’t turned on in Clerk');
 
   const nonce = crypto.randomUUID();
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
