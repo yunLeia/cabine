@@ -334,7 +334,12 @@ async function who(request: Request, deps: Deps): Promise<Identity> {
   if (token && deps.verifySession) {
     const account = await deps.verifySession(token).catch((err) => {
       // Why a sign-in wasn't accepted (expired, wrong origin, …); never the token itself.
-      console.log(JSON.stringify({ event: 'session_rejected', reason: String((err as { reason?: unknown })?.reason ?? err).slice(0, 200) }));
+      // The token's origin (azp) isn't secret and says which build sent it.
+      let azp: unknown;
+      try {
+        azp = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).azp;
+      } catch {}
+      console.log(JSON.stringify({ event: 'session_rejected', reason: String((err as { reason?: unknown })?.reason ?? err).slice(0, 200), azp }));
       return null;
     });
     if (account) return { id: `acct:${account}`, account };
@@ -937,7 +942,9 @@ const blobStore: Store = {
     // the usage counter"). Looks are read fresh too; they're small and read rarely.
     const r = await get(path, { access: 'private', useCache: false });
     if (!r || r.statusCode !== 200) return null;
-    return { bytes: new Uint8Array(await new Response(r.stream).arrayBuffer()), etag: r.blob.etag };
+    // A compressed response carries a weak etag (W/"…"), which ifMatch rejects
+    // every time (seen on the account manifests). The strong one is the same hash.
+    return { bytes: new Uint8Array(await new Response(r.stream).arrayBuffer()), etag: r.blob.etag.replace(/^W\//, '') };
   },
   async write(path, bytes, contentType, ifMatch) {
     try {
