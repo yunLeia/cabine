@@ -153,3 +153,18 @@ test('sync: a look saved again after being deleted comes back instead of being r
   assert.deepEqual(plan.removeLocal, []);
   assert.deepEqual(plan.push.map((r) => [r.id, r.deleted]), [['l:x', undefined]]);
 });
+
+test('a saved look whose piece changed kind restores as a valid look', () => {
+  const byId = new Map<string, Garment>([
+    ['x', garment('x', 'dress')],
+    ['y', garment('y', 'bottom')],
+    ['t', garment('t', 'top')],
+  ]);
+  // The top became a dress: the dress wins, and the bottom it can't be worn with is left out.
+  assert.deepEqual(pruneOutfit({ top: 'x', bottom: 'y' }, byId), { dress: 'x' });
+  // A deleted piece is dropped; the rest stays.
+  assert.deepEqual(pruneOutfit({ top: 't', bottom: 'gone' }, byId), { top: 't' });
+  for (const o of [pruneOutfit({ top: 'x', bottom: 'y' }, byId), pruneOutfit({ dress: 'x', bottom: 'y', top: 't' }, byId)]) {
+    assert.ok(!(o.dress && (o.top || o.bottom)), 'a dress is never worn with a top or bottom');
+  }
+});

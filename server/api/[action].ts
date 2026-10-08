@@ -496,6 +496,7 @@ const IMAGE_ID = /^[A-Za-z0-9_.:-]{1,120}$/;
 const MAX_RECORDS = 1000; // live records per account
 const MAX_RECORD_BYTES = 4000;
 const MAX_PUT = 100;
+const MAX_ACCOUNT_PHOTOS = 500;
 
 const accountDir = (account: string) => `accounts/${sha(`account:${account}`)}`;
 const manifestPath = (account: string) => `${accountDir(account)}/closet.json`;
@@ -587,8 +588,15 @@ async function closetImagePut(request: Request, body: Record<string, unknown>, d
   const account = await signedIn(request, deps);
   if (typeof body.id !== 'string' || !IMAGE_ID.test(body.id)) throw new RequestError('image id is invalid');
   const [image] = parseItems({ items: [{ category: 'top', image: body.image }] }); // same type and size checks
+  // Storage cap per account. Sign-up has no bot check, so this is what limits a
+  // fake account; the daily render cap limits spending, not storage.
+  const path = accountImagePath(account, body.id);
+  const photos = await deps.store.list(`${accountDir(account)}/images/`);
+  if (!photos.includes(path) && photos.length >= MAX_ACCOUNT_PHOTOS) {
+    throw new RequestError(`An account can hold at most ${MAX_ACCOUNT_PHOTOS} photos. Remove some to add more.`);
+  }
   try {
-    await deps.store.write(accountImagePath(account, body.id), image.bytes, image.mime, null);
+    await deps.store.write(path, image.bytes, image.mime, null);
   } catch (err) {
     if (!(err instanceof ConflictError)) throw err; // already there (a retry): photo ids never change content
   }

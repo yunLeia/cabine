@@ -123,7 +123,13 @@ async function requestHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-async function send(route: string, body: unknown): Promise<Response> {
+// A look or a clean-up takes about 15 s; past this the server has stalled, and the
+// panel should say so instead of showing the hanger forever.
+const WORK_TIMEOUT_MS = 200_000;
+const TOOK_TOO_LONG = 'That took too long. Please try again.';
+const timedOut = (err: unknown) => err instanceof DOMException && err.name === 'TimeoutError';
+
+async function send(route: string, body: unknown, timeoutMs?: number): Promise<Response> {
   if (!KEY) throw new RenderError('not_configured', 'This build of Cabine has no server key. Add VITE_CABINE_CLIENT_KEY to .env.local and rebuild.');
   let res: Response;
   try {
@@ -131,8 +137,10 @@ async function send(route: string, body: unknown): Promise<Response> {
       method: 'POST',
       headers: await requestHeaders(),
       body: JSON.stringify(body),
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
-  } catch {
+  } catch (err) {
+    if (timedOut(err)) throw new RenderError('render_failed', TOOK_TOO_LONG);
     throw new RenderError('offline', "Can't reach Cabine's server. Check your connection and try again.");
   }
   if (res.status === 401) throw new RenderError('not_configured', "Cabine's server didn't accept this build's key.");
@@ -149,7 +157,7 @@ export async function postJson<T>(route: string, body: unknown): Promise<T> {
 
 // Both routes answer with newline-delimited JSON: a plan right away, then the result.
 async function postForImage(route: 'style' | 'extract', body: unknown, onEvent: (e: RenderEvent) => void): Promise<Blob> {
-  const res = await send(route, body);
+  const res = await send(route, body, WORK_TIMEOUT_MS);
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => '');
     throw new RenderError('rejected', `The server couldn't do this (${res.status}). ${detail}`.trim());
@@ -159,7 +167,9 @@ async function postForImage(route: 'style' | 'extract', body: unknown, onEvent: 
   let buffer = '';
   let image: string | null = null;
   for (;;) {
-    const { value, done } = await reader.read();
+    const { value, done } = await reader.read().catch((err: unknown) => {
+      throw timedOut(err) ? new RenderError('render_failed', TOOK_TOO_LONG) : err;
+    });
     if (value) buffer += value;
     const lines = buffer.split('\n');
     buffer = done ? '' : lines.pop()!;

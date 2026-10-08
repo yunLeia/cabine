@@ -136,7 +136,16 @@ const actions: Actions = {
 
   openSavedLook(l) {
     state.view = 'look';
-    void setOutfit(pruneOutfit(l.outfit, state.byId));
+    // A piece can change kind after the look was saved (a top edited to a dress),
+    // so restore it as a valid look now, keep the saved copy in step, and say so.
+    const restored = pruneOutfit(l.outfit, state.byId);
+    const kept = new Set(Object.values(restored));
+    const left = Object.values(l.outfit).filter((id): id is string => !!id && state.byId.has(id) && !kept.has(id));
+    if (left.length) notify('A piece in this look changed kind, so it was left out.');
+    if (JSON.stringify(restored) !== JSON.stringify(l.outfit)) {
+      void setSavedLooks(state.savedLooks.map((x) => (x.key === l.key ? { ...x, outfit: restored } : x)));
+    }
+    void setOutfit(restored);
     render();
   },
 

@@ -636,3 +636,19 @@ Applied from the user's design-system board to the panel, the phone upload page 
   - a draft upload, to get the store's public key; it goes into the manifest as `key`, so the dev and store ids match
   - a domain for Clerk's production instance
   - screenshots
+
+## D34. Pre-submission review fixes
+
+Review findings, checked against the code before changing anything:
+
+- **Same look charged twice (high): not reproduced.** Five identical requests at once made one provider call; the rest waited for its result. The cache is re-read after the lock is taken (`paidWork`). Added as a regression test. My first harness reported errors, but that was the fake store throwing the wrong `ConflictError` class, not the server.
+- **Saved look breaks after a piece changes kind (medium): fixed.** Restoring a saved look now keeps it valid, saves the corrected version back (so it stays valid after sync), and says when a piece was left out. Before, the bottom was dropped with no message. Regression test added.
+- **Clean-up stuck after closing the panel (medium): already handled.** `recoverInterruptedCleanups` runs on start and marks orphaned work as failed, and the tile offers "Try the clean-up again". Added a 200 s timeout on render and clean-up requests, so a stalled server shows an error instead of an endless hanger.
+- **Image save declared done too early (medium): not in the current code.** `images.ts` `run()` resolves on `tx.oncomplete` and rejects on `onabort`/`onerror`. No change.
+- Items 2 and 3 of the review were not in the list that came through; not addressed.
+
+Found during the pre-submission check:
+
+- **Unlimited account storage (high): fixed.** An account could upload without limit. Now 500 photos per account; a retry of an existing photo still works. Daily render caps limit spending, not storage.
+- **Fake sign-ups (open).** Clerk's bot sign-up protection is off (so the extension's CAPTCHA doesn't block sign-up). Recommended: in the Clerk dashboard, turn on **Native API** (the setting for browser extensions) and re-enable **Bot sign-up protection**, then test email sign-up.
+- Scans of the built extension: no server secrets, no `eval`/`new Function`, no remote scripts, no source maps. The only keys in it are Clerk's publishable key and the public client key (rate limits only; the real limits are per user and per day).

@@ -522,6 +522,22 @@ const tests: [string, () => Promise<void>][] = [
     assert.ok(records.find((r: { id: string }) => r.id === 'g:3').updatedAt <= Date.now(), 'a clock running ahead is clamped');
   }],
 
+  ['closet sync: an account has a photo cap; re-sending a photo is fine', async () => {
+    const { deps } = setup();
+    deps.verifySession = async () => 'user_cap';
+    const put = (id: string) => call(deps, { id, image: img(id) }, 'secret', 'closet-image-put', USER, 'tok');
+    for (let i = 0; i < 500; i++) assert.equal((await put(`p-${i}`)).status, 200);
+    assert.equal((await put('p-500')).status, 400, 'the 501st photo is refused');
+    assert.equal((await put('p-3')).status, 200, 'a retry of an existing photo still works');
+  }],
+
+  ['a repeated look at the same moment is rendered once and every copy gets the result', async () => {
+    const { deps, provider } = setup();
+    const results = await Promise.all(Array.from({ length: 5 }, () => call(deps, look)));
+    assert.equal(provider.calls.length, 1, 'one provider call, one charge');
+    assert.ok(results.every((r) => r.last.type === 'result'), 'the copies wait for the first result');
+  }],
+
   ['closet sync: two computers saving at once both land', async () => {
     const { deps } = setup();
     deps.verifySession = async () => 'user_a';
