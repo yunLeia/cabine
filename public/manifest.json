@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cabine",
   "version": "0.1.0",
-  "description": "Keep your wardrobe beside every online store.",
+  "description": "Keep your wardrobe beside every online store, and see store pieces styled with clothes you already own.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

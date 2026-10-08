@@ -620,3 +620,19 @@ Applied from the user's design-system board to the panel, the phone upload page 
 - **Google sign-in works** (tested in Chrome).
   - The last bug: Clerk's settings field had been renamed (`__internal_environment`), so the client id read as missing. It now falls back to Clerk's public `/v1/environment`.
   - The Google client must list `https://<extension id>.chromiumapp.org/` as a redirect; the store build will need its own entry.
+
+## D33. Getting ready for the Chrome Web Store
+
+- **Off switch for paid work:** `npm run pause` / `npm run resume` (in `server/`), or `RENDERING_PAUSED=1` with a redeploy.
+  - The flag is a Blob file, so it takes effect immediately without a redeploy.
+  - While it's on, new looks and clean-ups are refused before any credit is reserved, with a plain message in the panel. Cached looks still come back.
+  - Why: a store review, a sudden spike, or an empty FASHN balance shouldn't need a code change to stop spending.
+- **`npm run package`:** builds, checks, and zips `release/cabine-<version>.zip`.
+  - Checks for: remote script loading, source maps, and Clerk's development key. The dev key refuses packaging unless `--allow-dev` is passed, for a draft upload only.
+  - Strips the manifest `key` from the zipped copy only. Locally, `key` keeps the unpacked build on the store's id; the store sets its own.
+- **Store texts:** `docs/store-listing.md` (listing) and `docs/store-privacy.md` (privacy tab).
+- **Still needed from the user:**
+  - the $5 developer registration
+  - a draft upload, to get the store's public key; it goes into the manifest as `key`, so the dev and store ids match
+  - a domain for Clerk's production instance
+  - screenshots

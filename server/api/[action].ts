@@ -110,6 +110,9 @@ export interface Deps {
   verifySession?: (token: string) => Promise<string | null>;
   // Deletes the sign-in itself (the Clerk user), last step of deleting an account.
   deleteAccount?: (account: string) => Promise<void>;
+  // The off switch for everything that costs money (scripts/pause.ts). Cached
+  // results still come back; nothing new is made while it's on.
+  paused?: () => Promise<boolean>;
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -216,6 +219,7 @@ async function paidWork(
       emit({ type: 'plan', cached: true, credits: 0 });
       return { image: completed.bytes, cached: true, credits: 0 };
     }
+    if (await deps.paused?.()) throw new PausedError('Cabine is taking a short break from making new looks. Please try again later.');
     emit({ type: 'plan', cached: false, credits });
     await reserve(kind, credits, userId, deps);
     const image = await produce();
@@ -261,6 +265,7 @@ async function waitFor(path: string, deps: Deps): Promise<Uint8Array | null> {
 
 class LimitError extends Error {} // the global daily budget
 class UserLimitError extends Error {} // this person's daily allowance
+class PausedError extends Error {} // rendering switched off
 
 const today = (deps: Deps) => (deps.today ?? (() => new Date().toISOString().slice(0, 10)))();
 // The anonymous id is hashed in storage paths too.
@@ -743,7 +748,7 @@ export function createHandler(getDeps: () => Deps) {
         try {
           await work(emit);
         } catch (err) {
-          const code = err instanceof UserLimitError ? 'user_limit' : err instanceof LimitError ? 'daily_limit' : 'render_failed';
+          const code = err instanceof UserLimitError ? 'user_limit' : err instanceof LimitError ? 'daily_limit' : err instanceof PausedError ? 'paused' : 'render_failed';
           if (code === 'render_failed') console.error(`[${action}]`, code, err);
           else console.log(JSON.stringify({ event: code, action }));
           emit({ type: 'error', code, message: err instanceof Error ? err.message : String(err) });
@@ -1050,6 +1055,14 @@ async function verifyClerkSession(token: string): Promise<string | null> {
   return typeof claims.sub === 'string' ? claims.sub : null;
 }
 
+// On when RENDERING_PAUSED=1 (needs a redeploy) or when config/paused.json exists
+// (instant: `npm run pause` / `npm run resume`).
+export const PAUSE_FLAG = 'config/paused.json';
+async function renderingPaused(): Promise<boolean> {
+  if (process.env.RENDERING_PAUSED === '1') return true;
+  return (await blobStore.read(PAUSE_FLAG).catch(() => null)) !== null;
+}
+
 async function deleteClerkUser(account: string): Promise<void> {
   await createClerkClient({ secretKey: env('CLERK_SECRET_KEY') }).users.deleteUser(account);
 }
@@ -1065,6 +1078,7 @@ const productionDeps = (): Deps => ({
   userLimits: { looks: Number(process.env.USER_DAILY_LOOKS ?? 10), cleanups: Number(process.env.USER_DAILY_CLEANUPS ?? 10) },
   verifySession: verifyClerkSession,
   deleteAccount: deleteClerkUser,
+  paused: renderingPaused,
 });
 
 export const POST = createHandler(productionDeps);

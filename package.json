@@ -7,7 +7,8 @@
     "dev": "vite build --watch",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node test/infer.test.ts && node --test test/regressions.test.ts"
+    "test": "node test/infer.test.ts && node --test test/regressions.test.ts",
+    "package": "node scripts/package.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.0",

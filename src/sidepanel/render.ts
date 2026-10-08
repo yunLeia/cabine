@@ -167,7 +167,7 @@ async function postForImage(route: 'style' | 'extract', body: unknown, onEvent: 
       const event = JSON.parse(line) as RenderEvent;
       if (event.type === 'error') {
         // Limits come with a message written for people ("You've used today's 10 looks…").
-        throw event.code === 'user_limit' || event.code === 'daily_limit'
+        throw event.code === 'user_limit' || event.code === 'daily_limit' || event.code === 'paused'
           ? new RenderError('daily_limit', event.message)
           : new RenderError('render_failed', route === 'style' ? "Couldn't style this look. Please try again." : "Couldn't clean up this photo. Please try again.");
       }

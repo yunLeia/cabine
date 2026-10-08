@@ -12,3 +12,4 @@ scripts/fashn-trial/inputs/
 .claude/skills/
 skills-lock.json
 server/.claude/
+release/

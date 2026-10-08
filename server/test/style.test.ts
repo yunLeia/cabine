@@ -550,6 +550,18 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(recorded.length, 1, 'only the other account\'s statistics remain');
   }],
 
+  ['paused: nothing new is made or charged, cached looks still come back', async () => {
+    const { deps, provider } = setup();
+    const one = { items: [item('top', 'p1')] };
+    assert.equal((await call(deps, one)).last.type, 'result');
+    deps.paused = async () => true;
+    assert.equal((await call(deps, one)).last.type, 'result', 'cached: still served');
+    const fresh = await call(deps, { items: [item('top', 'p2')] });
+    assert.equal(fresh.last.code, 'paused');
+    assert.equal((await call(deps, item('top', 'p3'), 'secret', 'extract')).last.code, 'paused');
+    assert.equal(provider.calls.length, 1);
+  }],
+
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
     const { deps, recorded } = setup();
     const r = await call(deps, {
