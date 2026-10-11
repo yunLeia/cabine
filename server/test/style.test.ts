@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import {
   ConflictError,
   cleanupSessions,
@@ -13,6 +14,7 @@ import {
   extractPrompt,
   fashnPrompt,
   parseItems,
+  verifyGoogleIdToken,
   type Deps,
   type EventRow,
   type ExtractProvider,
@@ -576,6 +578,46 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(fresh.last.code, 'paused');
     assert.equal((await call(deps, item('top', 'p3'), 'secret', 'extract')).last.code, 'paused');
     assert.equal(provider.calls.length, 1);
+  }],
+
+  ['google sign-in: only a fresh Google token for our client, with our nonce and a verified email, is accepted', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('RS256');
+    const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }] });
+    const CLIENT = 'cabine.apps.googleusercontent.com';
+    const NONCE = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+    const token = (claims: Record<string, unknown>, opts: { iss?: string; aud?: string; key?: typeof privateKey; age?: number } = {}) =>
+      new SignJWT({ email: 'Lea@Example.com', email_verified: true, nonce: NONCE, given_name: 'Lea', ...claims })
+        .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+        .setIssuer(opts.iss ?? 'https://accounts.google.com')
+        .setAudience(opts.aud ?? CLIENT)
+        .setIssuedAt(Math.floor(Date.now() / 1000) - (opts.age ?? 0))
+        .setExpirationTime(Math.floor(Date.now() / 1000) - (opts.age ?? 0) + 3600)
+        .sign(opts.key ?? privateKey);
+    const check = async (t: Promise<string>, nonce = NONCE) => verifyGoogleIdToken(await t, nonce, keys, CLIENT);
+
+    assert.deepEqual(await check(token({})), { email: 'lea@example.com', firstName: 'Lea', lastName: undefined });
+    const other = await generateKeyPair('RS256');
+    await assert.rejects(check(token({}, { key: other.privateKey })), 'signed by someone else');
+    await assert.rejects(check(token({}, { aud: 'someone-elses.apps.googleusercontent.com' })), 'another Google client');
+    await assert.rejects(check(token({}, { iss: 'https://evil.example' })), 'another issuer');
+    await assert.rejects(check(token({}), 'f'.repeat(36)), 'another nonce');
+    await assert.rejects(check(token({ email_verified: false })), 'unverified email');
+    await assert.rejects(check(token({}, { age: 3600 })), 'too old');
+  }],
+
+  ['google sign-in route: a verified token gets a ticket; anything else is refused', async () => {
+    const { deps } = setup();
+    const nonce = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+    deps.verifyGoogle = async (t, n) => {
+      if (t !== 'good' || n !== nonce) throw new Error('bad');
+      return { email: 'lea@example.com' };
+    };
+    deps.googleTicket = async (who) => `ticket-for-${who.email}`;
+    const ok = await call(deps, { idToken: 'good', nonce }, 'secret', 'google-sign-in', USER);
+    assert.deepEqual(ok.body, { ticket: 'ticket-for-lea@example.com' });
+    assert.equal((await call(deps, { idToken: 'forged', nonce }, 'secret', 'google-sign-in', USER)).status, 403);
+    assert.equal((await call(deps, { idToken: 'good', nonce: 'x' }, 'secret', 'google-sign-in', USER)).status, 400);
+    assert.equal((await call(deps, { idToken: 'good', nonce }, null, 'google-sign-in', USER)).status, 401, 'needs the client key');
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {

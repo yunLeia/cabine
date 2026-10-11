@@ -12,6 +12,7 @@
 //   POST /api/closet-image    ...fetch one photo
 //   POST /api/closet-image-put ...store one photo
 //   POST /api/account-delete  ...delete the account: its closet, photos, statistics and sign-in
+//   POST /api/google-sign-in  a verified Google ID token → a short-lived Clerk sign-in ticket
 //   GET  /api/cleanup         daily cron: deletes expired sessions, unclaimed photos and old cached images
 //
 // The extension sends original garment images, categories and titles. This
@@ -25,6 +26,7 @@ import { readFile } from 'node:fs/promises';
 import { BlobPreconditionFailedError, del, get, list, put } from '@vercel/blob';
 import { neon } from '@neondatabase/serverless';
 import { createClerkClient, verifyToken } from '@clerk/backend';
+import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import sharp from 'sharp';
 
 export type Category = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes';
@@ -113,6 +115,9 @@ export interface Deps {
   // The off switch for everything that costs money (scripts/pause.ts). Cached
   // results still come back; nothing new is made while it's on.
   paused?: () => Promise<boolean>;
+  // Google sign-in (D32): checks a Google ID token, then gets a Clerk sign-in ticket for that person.
+  verifyGoogle?: (idToken: string, nonce: string) => Promise<GoogleIdentity>;
+  googleTicket?: (who: GoogleIdentity) => Promise<string>;
 }
 
 // ---- Request validation ----------------------------------------------------------------
@@ -611,6 +616,43 @@ async function closetImage(request: Request, body: Record<string, unknown>, deps
   return { image: dataUri(stored.bytes, imageMime(stored.bytes)) };
 }
 
+// ---- Google sign-in (D32) ---------------------------------------------------------------
+// Clerk's own Google sign-up runs a browser bot check (Cloudflare Turnstile) that
+// can't run inside an extension, so with bot protection on it always fails there.
+// Instead the extension gets a Google ID token from Chrome's own Google window,
+// and this checks it against Google's keys: signed by Google, for our Google
+// client, recent, carrying the extension's nonce, with a verified email. Then it
+// finds or creates that person in Clerk through Clerk's server API and returns a
+// two-minute sign-in ticket. A verified Google account stands in for the CAPTCHA.
+
+export interface GoogleIdentity {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
+
+export async function verifyGoogleIdToken(idToken: string, nonce: string, keys: JWTVerifyGetKey, clientId: string): Promise<GoogleIdentity> {
+  const { payload } = await jwtVerify(idToken, keys, { issuer: GOOGLE_ISSUERS, audience: clientId, maxTokenAge: '10m' });
+  if (payload.nonce !== nonce) throw new Error('nonce mismatch');
+  if (payload.email_verified !== true || typeof payload.email !== 'string') throw new Error('email not verified');
+  const name = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 100) : undefined);
+  return { email: payload.email.toLowerCase(), firstName: name(payload.given_name), lastName: name(payload.family_name) };
+}
+
+async function googleSignIn(body: Record<string, unknown>, deps: Deps) {
+  const { idToken, nonce } = body;
+  if (typeof idToken !== 'string' || idToken.length > 4096) throw new RequestError('idToken is invalid');
+  if (typeof nonce !== 'string' || !/^[A-Za-z0-9-]{16,64}$/.test(nonce)) throw new RequestError('nonce is invalid');
+  if (!deps.verifyGoogle || !deps.googleTicket) throw new RequestError('Google sign-in isn’t set up.');
+  const who = await deps.verifyGoogle(idToken, nonce).catch((err) => {
+    console.log(JSON.stringify({ event: 'google_rejected', reason: String(err?.code ?? err?.message ?? err).slice(0, 120) }));
+    throw new AuthError('Google sign-in couldn’t be verified. Please try again.');
+  });
+  return { ticket: await deps.googleTicket(who) };
+}
+
 // ---- Analytics: accept a batch of known events, drop anything malformed ------------------------
 
 export const EVENT_NAMES = new Set([
@@ -690,7 +732,7 @@ function authorized(request: Request, clientKey: string): boolean {
 }
 
 const STREAMING = new Set(['style', 'extract']); // paid work: NDJSON progress + result
-const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events', 'closet', 'closet-put', 'closet-image', 'closet-image-put', 'account-delete']); // the extension
+const WITH_KEY = new Set(['style', 'extract', 'upload-session', 'inbox', 'inbox-ack', 'events', 'closet', 'closet-put', 'closet-image', 'closet-image-put', 'account-delete', 'google-sign-in']); // the extension
 const TOKEN_ONLY = new Set(['inbox-session', 'inbox-upload']); // the phone page: its token is the credential
 
 export function createHandler(getDeps: () => Deps) {
@@ -720,6 +762,7 @@ export function createHandler(getDeps: () => Deps) {
           : action === 'closet-image' ? await closetImage(request, body, deps)
           : action === 'closet-image-put' ? await closetImagePut(request, body, deps)
           : action === 'account-delete' ? await deleteAccount(request, deps)
+          : action === 'google-sign-in' ? await googleSignIn(body, deps)
           : await ackInbox(body, deps);
         return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
       } catch (err) {
@@ -1071,6 +1114,32 @@ async function renderingPaused(): Promise<boolean> {
   return (await blobStore.read(PAUSE_FLAG).catch(() => null)) !== null;
 }
 
+// The Google client the extension signs in with (public; the same one Clerk uses).
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '231272663201-1s8p87349otgpukg1hcrnv9uni74ljhm.apps.googleusercontent.com';
+let googleKeys: JWTVerifyGetKey | undefined;
+const verifyGoogle = (idToken: string, nonce: string) =>
+  verifyGoogleIdToken(idToken, nonce, (googleKeys ??= createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'))), GOOGLE_CLIENT_ID);
+
+// The Clerk user with this verified email, created on the first Google sign-in.
+async function clerkTicketFor(who: GoogleIdentity): Promise<string> {
+  const clerk = createClerkClient({ secretKey: env('CLERK_SECRET_KEY') });
+  const find = async () => (await clerk.users.getUserList({ emailAddress: [who.email], limit: 1 })).data[0];
+  let user = await find();
+  let created = false;
+  if (!user) {
+    try {
+      user = await clerk.users.createUser({ emailAddress: [who.email], firstName: who.firstName, lastName: who.lastName, skipPasswordRequirement: true });
+      created = true;
+    } catch (err) {
+      user = await find(); // a second sign-in at the same moment created it first
+      if (!user) throw err;
+    }
+  }
+  const { token } = await clerk.signInTokens.createSignInToken({ userId: user.id, expiresInSeconds: 120 });
+  console.log(JSON.stringify({ event: 'google_sign_in', created }));
+  return token;
+}
+
 async function deleteClerkUser(account: string): Promise<void> {
   await createClerkClient({ secretKey: env('CLERK_SECRET_KEY') }).users.deleteUser(account);
 }
@@ -1087,6 +1156,8 @@ const productionDeps = (): Deps => ({
   verifySession: verifyClerkSession,
   deleteAccount: deleteClerkUser,
   paused: renderingPaused,
+  verifyGoogle,
+  googleTicket: clerkTicketFor,
 });
 
 export const POST = createHandler(productionDeps);

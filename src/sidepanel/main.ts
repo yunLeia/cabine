@@ -12,7 +12,7 @@ import { startFlushing, trackPanel } from './analytics';
 import { deleteAccountData, requestSync, onSyncStatus } from './sync';
 import { account, interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
-import { RenderError, cleanUpPhoto, getSavedRender, lookKey, styleOutfit } from './render';
+import { RenderError, cleanUpPhoto, getSavedRender, lookKey, postJson, styleOutfit } from './render';
 import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
@@ -556,7 +556,7 @@ startFlushing();
 // Clerk's Google button runs Google through Chrome's own window (auth.ts).
 interceptGoogle(async () => {
   try {
-    await signInWithGoogle();
+    await signInWithGoogle(async (idToken, nonce) => (await postJson<{ ticket: string }>('google-sign-in', { idToken, nonce })).ticket);
   } catch (err) {
     // Closing Google's window isn't an error worth showing.
     if (/did not approve|canceled|cancelled/i.test(String(err))) return;

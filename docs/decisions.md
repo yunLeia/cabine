@@ -652,3 +652,22 @@ Found during the pre-submission check:
 - **Unlimited account storage (high): fixed.** An account could upload without limit. Now 500 photos per account; a retry of an existing photo still works. Daily render caps limit spending, not storage.
 - **Fake sign-ups (open).** Clerk's bot sign-up protection is off (so the extension's CAPTCHA doesn't block sign-up). Recommended: in the Clerk dashboard, turn on **Native API** (the setting for browser extensions) and re-enable **Bot sign-up protection**, then test email sign-up.
 - Scans of the built extension: no server secrets, no `eval`/`new Function`, no remote scripts, no source maps. The only keys in it are Clerk's publishable key and the public client key (rate limits only; the real limits are per user and per day).
+
+## D35. Google sign-in through Cabine's server (works with bot protection on)
+
+- **Problem:** with Clerk's bot sign-up protection on, Google sign-in failed with "failed security validations". The extension used Clerk's Google One Tap exchange, which isn't on Clerk's CAPTCHA-bypass list (only browser-redirect OAuth is). The Turnstile CAPTCHA can't run in an extension, and turning on Native API didn't change it. Turning protection off would have left sign-up open to bots.
+- **Decision:** the server does the Google check and hands the extension a Clerk sign-in ticket.
+  1. The extension gets a Google ID token from Chrome's Google window, with a fresh nonce (as before).
+  2. `POST /api/google-sign-in` checks it against Google's public keys:
+     - signed by Google
+     - issuer is Google
+     - audience is our Google client
+     - at most 10 minutes old
+     - the nonce matches
+     - the email is verified
+  3. The server finds the Clerk user with that email, or creates one through Clerk's server API (no browser bot check there).
+  4. The server returns a 2-minute sign-in token. The extension signs in with `strategy: 'ticket'`, which is a sign-in, not a sign-up.
+- **Why this is safe:** a verified Google account is stronger evidence of a person than a CAPTCHA. Bot sign-up protection stays on for email sign-up. The ticket only reaches the extension that held the nonce and the client key.
+- **Same email, same account:** a Google sign-in with an email that already signed up by email gets that account, since Google verified the email.
+- **Config:** `GOOGLE_CLIENT_ID` (defaults to the dev Google client). The production Clerk instance will need its own Google client, set here too.
+- **Tests:** tokens signed with a local key cover each refusal (wrong signer, audience, issuer, nonce, unverified email, too old). The route test covers ticket / 403 / 400 / 401.

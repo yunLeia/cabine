@@ -85,9 +85,11 @@ async function googleClientId(c: Clerk): Promise<string | undefined> {
 }
 
 // Google through Chrome's own sign-in window (chrome.identity), which can return
-// to the extension. Google hands back an ID token; Clerk signs in with it (or
-// creates the account), the same exchange as Google One Tap.
-export async function signInWithGoogle(): Promise<void> {
+// to the extension. Google hands back an ID token; `exchange` sends it to
+// Cabine's server, which checks it with Google and answers with a Clerk sign-in
+// ticket (creating the account the first time). Clerk's own Google sign-up runs
+// a browser bot check that can't run in an extension, so it isn't used.
+export async function signInWithGoogle(exchange: (idToken: string, nonce: string) => Promise<string>): Promise<void> {
   const client = clerk?.client;
   if (!clerk || !client) throw new Error('sign-in isn’t loaded yet');
   const clientId = await googleClientId(clerk);
@@ -112,15 +114,8 @@ export async function signInWithGoogle(): Promise<void> {
   const token = back && new URLSearchParams(new URL(back).hash.slice(1)).get('id_token');
   if (!token) throw new Error('Google didn’t return a sign-in');
 
-  const attempt = await client.signIn
-    .create({ strategy: 'google_one_tap', token } as never)
-    .catch((err: { errors?: { code?: string }[] }) => {
-      // First time with this Google account: create the Cabine account instead.
-      if (err?.errors?.[0]?.code === 'external_account_not_found') {
-        return client.signUp.create({ strategy: 'google_one_tap', token } as never);
-      }
-      throw err;
-    });
+  const ticket = await exchange(token, nonce);
+  const attempt = await client.signIn.create({ strategy: 'ticket', ticket });
   if (attempt.status !== 'complete' || !attempt.createdSessionId) throw new Error('Google sign-in didn’t finish');
   await clerk.setActive({ session: attempt.createdSessionId });
 }
