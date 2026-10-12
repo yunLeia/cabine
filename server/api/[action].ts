@@ -685,7 +685,7 @@ export interface PlanInput {
 }
 export interface RawPlan {
   title: string; // "A more casual take"
-  reason: string; // one short sentence on why it works (the app writes what changed, from the facts)
+  reason: string; // a short ending clause: "to make it feel more casual" or "as requested" (the app writes what changed, from the facts)
   conflict?: string; // set instead of a look when the request contradicts itself
   pieces: { id: string; why: string }[];
   labels?: { id: string; label: string }[]; // plain words for each piece: "black jacket", "charcoal top"
@@ -815,7 +815,7 @@ export function finalizePlan(input: PlanInput, raw: RawPlan): LookPlan {
   return {
     labels,
     title: shorten(raw.title, 60) || 'A different take',
-    reason: shorten(raw.reason, 160),
+    reason: shorten(raw.reason, 70),
     outfit,
     // Fixed pieces, plus current ones the stylist chose to leave as they are.
     kept: [...input.keep.map((k) => k.id), ...chosen.filter((c) => currentByKind.get(c.piece.category) === c.piece.id).map((c) => c.piece.id)],
@@ -875,7 +875,7 @@ Rules:
 - The new look must be meaningfully different from the CURRENT look: a different silhouette, formality or texture, not just a slightly different color of the same thing. Match the requested direction.
 - Prefer a complete, wearable look: if the kept pieces and your picks leave out something obvious (shoes, a bottom), add the best candidate if one exists.
 - Write "title" as 2 to 5 words naming the new direction, e.g. "A more casual take".
-- Write "reason" as one short sentence (under 120 characters) on why the new look works, in plain language and without hype, e.g. "The relaxed silhouette gives it a more everyday feel." Do not list the pieces or the changes: the app already shows what changed.
+- Write "reason" as a short ending clause, under 50 characters, that finishes the sentence "Swapped your black trousers for blue jeans …": either "to make it feel more casual" (to make it feel, then the quality) or "as requested" when the shopper's note or direction asked for exactly this. Start with "to" or "as"; no period; do not list the pieces or the changes.
 - Write "why" as one short clause per piece.
 - Write "labels": for every piece in KEPT, in CURRENT, and each piece you choose, its id and a plain 1 to 3 word description of how it looks, color first, e.g. "black jacket", "charcoal top", "white shorts". No brand names and no product names.
 - Conflicts: only when the shopper's note or direction directly contradicts what they asked to keep (for example they want a different jacket but the jacket is KEPT), set "conflict" to ONE short sentence, under 140 characters, telling them what to adjust (for example: "The jacket is kept, so I can't swap it. Tap it to Change, or drop the note."), and leave "pieces" empty. Otherwise never set "conflict"; do your best with what you have.
@@ -915,7 +915,7 @@ function plannerMessages(input: PlanInput, feedback?: string) {
 // Every field but the pieces is optional: a conflict answer has no look to describe.
 const rawPlanSchema = z.object({
   title: z.string().max(60).optional(),
-  reason: z.string().max(160).optional(),
+  reason: z.string().max(100).optional(),
   conflict: z.string().max(240).optional(),
   pieces: z.array(z.object({ id: z.string(), why: z.string().max(160).optional() })).max(5).optional(),
   labels: z.array(z.object({ id: z.string(), label: z.string().max(60) })).max(14).optional(),

@@ -395,7 +395,6 @@ function differentBox(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
       h('div', { class: 'dl-ask' }, h('img', { class: 'dl-mark', src: '/brand/monogram.png', alt: '' }), h('p', { class: 'dl-question' }, 'What do you want to change?')),
       h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'data-vibe': v.key, 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
       h('textarea', { class: 'dl-note', rows: 2, maxlength: 200, placeholder: 'e.g. “try with denim”, “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
-      h('p', { class: 'dl-hint small muted' }, 'Tap the pieces on the right to keep or change them.'),
       d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
       d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
       h('p', { class: 'dl-blocked small muted', hidden: !blocked }, blocked ?? ''),
@@ -454,7 +453,7 @@ function explainBlock(s: ViewState, a: Actions): HTMLElement | null {
     'section',
     { class: 'explain', 'aria-label': 'About this look' },
     h('h3', { class: 'cmp-title' }, d.plan.title),
-    h('p', { class: 'cmp-summary' }, `${describeChanges(d.plan, kindWord)} ${d.plan.reason}`.trim()),
+    h('p', { class: 'cmp-summary' }, describeChanges(d.plan, kindWord)),
     d.feedback === undefined
       ? h(
           'p',

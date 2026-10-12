@@ -86,10 +86,12 @@ export function usablePlan(plan: LookPlan, byId: Map<string, Garment>): boolean 
   return Object.keys(pruneOutfit(plan.outfit, byId)).length === ids.length && plan.kept.every((id) => ids.includes(id));
 }
 
-// What changed, in a sentence or two, written from the facts with plain words for the
-// pieces ("black jacket", never a store's product name, which is long, shouty and can
-// repeat across pieces), e.g. "Swapped your olive jacket for a black jacket and added
-// white sneakers. Your white shorts stay." The stylist adds only a short reason after it.
+// What changed, in one line, written from the facts with plain words for the pieces
+// ("black jacket", never a store's product name, which is long, shouty and can repeat
+// across pieces), and finished with the stylist's short clause: "Swapped your white
+// wide shorts for dark ripped jeans and added a black bouclé jacket to make it feel
+// darker." The stylist writes only that ending ("to make it feel …" or "as requested");
+// anything that isn't such a clause is left off rather than read wrongly after the facts.
 // `fallback` names a piece the stylist gave no words for (its kind, say "top").
 export function describeChanges(plan: LookPlan, fallback: (id: string) => string | undefined): string {
   const label = (id?: string) => (id ? plan.labels[id] ?? fallback(id) : undefined);
@@ -97,9 +99,9 @@ export function describeChanges(plan: LookPlan, fallback: (id: string) => string
   const a = (l: string) => (plural(l) ? l : `${/^[aeiou]/i.test(l) ? 'an' : 'a'} ${l}`);
   const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0]);
 
-  const stays = [...new Set(plan.kept.flatMap((id) => (label(id) ? [label(id)!] : [])))];
+  const stays = new Set(plan.kept.flatMap((id) => (label(id) ? [label(id)!] : [])));
   // A swapped-away piece that reads the same as one that stays (a duplicate): "your other olive jacket".
-  const yours = (id?: string) => (label(id) ? `your ${stays.includes(label(id)!) ? 'other ' : ''}${label(id)}` : undefined);
+  const yours = (id?: string) => (label(id) ? `your ${stays.has(label(id)!) ? 'other ' : ''}${label(id)}` : undefined);
 
   const did: string[] = [];
   const swaps = plan.changes.filter((c) => c.from && c.to && yours(c.from) && label(c.to)).map((c) => `${yours(c.from)} for ${a(label(c.to)!)}`);
@@ -109,7 +111,8 @@ export function describeChanges(plan: LookPlan, fallback: (id: string) => string
   const offs = plan.changes.filter((c) => c.from && !c.to && yours(c.from)).map((c) => yours(c.from)!);
   if (offs.length) did.push(`took off ${list(offs)}`);
 
-  const first = did.length ? `${list(did)}.`.replace(/^./, (c) => c.toUpperCase()) : '';
-  const second = stays.length ? `Your ${list(stays)} ${stays.length > 1 || plural(stays[0]) ? 'stay' : 'stays'}.` : '';
-  return [first, second].filter(Boolean).join(' ') || 'A new combination from your closet.';
+  const facts = did.length ? list(did).replace(/^./, (c) => c.toUpperCase()) : 'A new combination from your closet';
+  const reason = plan.reason.trim().replace(/[.!\s]+$/, '');
+  const ending = /^(to|as)\s/i.test(reason) ? ` ${reason.replace(/^./, (c) => c.toLowerCase())}` : '';
+  return `${facts}${ending}.`;
 }
