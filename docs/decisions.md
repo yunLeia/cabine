@@ -696,3 +696,4 @@ Found during the pre-submission check:
 - **Found in the first live test:** with no other top in the closet, the stylist dropped the current top and returned a look with no top. Now:
   - It may reuse a current piece when nothing better exists; those show under "Keeping".
   - The server refuses an answer that isn't complete. If the current look had a top and bottom (or a dress), or shoes, the new one needs them too. The model is told why and tries once more.
+- **Second live-test finding:** "Try one more" returned a 500. Haiku 5.5 reasons before it answers, and my 700-token cap ran out before it wrote any answer (`No output generated`). Now `reasoning: 'low'` and a 3,000-token budget (still well under a cent), and "no usable answer" is retried once like any other bad answer instead of failing.

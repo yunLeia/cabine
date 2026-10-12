@@ -743,7 +743,7 @@ export function parsePlanRequest(body: Record<string, unknown>): PlanInput {
   return { keep, current, candidates, vibes: vibes as string[], note: note || undefined, favorites: ids(body.favorites, 12), avoid };
 }
 
-class PlanProblem extends Error {} // the model's answer didn't hold up; the message goes back to it
+export class PlanProblem extends Error {} // the model's answer didn't hold up (or never came); the message goes back to it
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
@@ -803,13 +803,12 @@ async function planLook(request: Request, body: Record<string, unknown>, deps: D
   const started = Date.now();
   let feedback: string | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await deps.planner.plan(input, feedback);
     try {
-      const plan = finalizePlan(input, raw);
+      const plan = finalizePlan(input, await deps.planner.plan(input, feedback));
       console.log(JSON.stringify({ event: 'plan', planner: deps.planner.id, vibes: input.vibes, kept: input.keep.length, candidates: input.candidates.length, attempts: attempt + 1, seconds: (Date.now() - started) / 1000 }));
       return plan;
     } catch (err) {
-      if (!(err instanceof PlanProblem)) throw err;
+      if (!(err instanceof PlanProblem)) throw err; // an answer that didn't hold up, or no answer at all: one more try
       feedback = err.message;
     }
   }
@@ -882,15 +881,24 @@ const rawPlanSchema = z.object({
 const gatewayPlanner = (): Planner => ({
   id: process.env.PLANNER_MODEL ?? 'anthropic/claude-haiku-5.5',
   async plan(input, feedback) {
-    const { output } = await generateText({
+    const result = await generateText({
       model: process.env.PLANNER_MODEL ?? 'anthropic/claude-haiku-5.5',
       system: PLANNER_SYSTEM,
       messages: plannerMessages(input, feedback),
       output: Output.object({ schema: rawPlanSchema }),
-      maxOutputTokens: 700,
+      // A little reasoning helps with the rules. The answer needs room: it shares
+      // the budget with the thinking, and a request with several looks to avoid
+      // once ran out before writing any answer (seen in production).
+      reasoning: 'low',
+      maxOutputTokens: 3000,
       abortSignal: AbortSignal.timeout(50_000),
     });
-    return output;
+    try {
+      return result.output;
+    } catch {
+      console.log(JSON.stringify({ event: 'planner_no_output', finishReason: result.finishReason, outputTokens: result.usage?.outputTokens }));
+      throw new PlanProblem('You gave no usable answer. Reply only with the structured answer, kept short.');
+    }
   },
 });
 

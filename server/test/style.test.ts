@@ -13,6 +13,7 @@ import {
   createHandler,
   extractPrompt,
   fashnPrompt,
+  PlanProblem,
   parseItems,
   verifyGoogleIdToken,
   type Deps,
@@ -767,6 +768,26 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.outfit, { outerwear: 'coat', dress: 'gown', shoes: 'boots' });
     assert.deepEqual(r.body.changes.map((c: { category: string; to?: string }) => [c.category, c.to ?? null]).sort(), [['bottom', null], ['dress', 'gown'], ['shoes', 'boots'], ['top', null]]);
+  }],
+
+  ['different look: no answer from the model once is retried; a crash is an honest error', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const request = { keep: [piece('top1', 'top')], current: [], candidates: [piece('jeans', 'bottom')], vibes: [] };
+    let calls = 0;
+    deps.planner = {
+      id: 'fake',
+      plan: async () => {
+        if (calls++ === 0) throw new PlanProblem('You gave no usable answer.');
+        return { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] };
+      },
+    };
+    assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
+    assert.equal(calls, 2);
+    deps.planner = { id: 'fake', plan: async () => { throw new Error('gateway down'); } };
+    const down = await call(deps, request, 'secret', 'plan-look');
+    assert.equal(down.status, 500);
+    assert.match(down.body.error, /Something went wrong/);
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
