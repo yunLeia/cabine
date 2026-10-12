@@ -15,6 +15,7 @@ import {
   fashnPrompt,
   PlanProblem,
   parseItems,
+  shorten,
   verifyGoogleIdToken,
   type Deps,
   type EventRow,
@@ -824,6 +825,13 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(r.status, 200);
     assert.deepEqual(r.body, { conflict: 'You asked for a different jacket but the jacket is kept. Tap it to Change, or drop the note.' });
     assert.equal(calls, 1, 'no second try: a question is an answer');
+  }],
+
+  ['shorten: ends on a sentence or a whole word, never mid-word', async () => {
+    assert.equal(shorten('Short enough.', 50), 'Short enough.');
+    assert.equal(shorten('The jacket is fixed in this look, so I cannot swap it. Would you like me to build around it instead of changing the jacket?', 80), 'The jacket is fixed in this look, so I cannot swap it.');
+    assert.equal(shorten('One long run on sentence without any full stop that keeps going and going', 40), 'One long run on sentence without any…');
+    assert.equal(shorten('  spaced   out  ', 50), 'spaced out');
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
