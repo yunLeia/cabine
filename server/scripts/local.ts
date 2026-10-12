@@ -54,14 +54,14 @@ const deps: Deps = {
     id: 'local-fake',
     async plan(input, feedback) {
       // Type "conflict" in the note to see the stylist's question instead of a look.
-      if (input.note?.toLowerCase().includes('conflict')) return { title: '', summary: '', conflict: 'You asked for a different jacket, but the jacket is kept. Tap it to Change, or clear the note.', pieces: [] };
+      if (input.note?.toLowerCase().includes('conflict')) return { title: '', reason: '', conflict: 'You asked for a different jacket, but the jacket is kept. Tap it to Change, or clear the note.', pieces: [] };
       // For each piece being moved away from, the first unused candidate of its kind; if the
       // closet has none (no other top), the current piece stays so the look is complete.
       const unused = input.candidates.filter((c) => feedback || !input.avoid.flat().includes(c.id));
       const picks = input.current.map((cur) => unused.find((c) => c.category === cur.category) ?? cur);
       const pieces = picks.map((c) => ({ id: c.id, why: 'a different feel' }));
       const keptName = input.keep[0]?.title ?? 'piece';
-      return { title: input.vibes.length ? `A ${input.vibes[0]} take` : 'A different take', summary: `Kept your ${keptName} and tried something else from your closet.`, pieces };
+      return { title: input.vibes.length ? `A ${input.vibes[0]} take` : 'A different take', reason: 'A change of pace.', pieces };
     },
   },
 };

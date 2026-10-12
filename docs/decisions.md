@@ -712,6 +712,7 @@ Found during the pre-submission check:
   - only closet ids it was sent are used
   - the look stays complete and differs from the current look and every earlier one
   - **conflicts:** if the note contradicts what's kept (a different jacket while the jacket is kept), the stylist returns a short question instead of a look. The sheet shows it and nothing is generated or counted as a look. It still uses one of the day's suggestions.
-- **The summary comes from the model, not a template,** with a prompt that allows only changes actually made (a live test once claimed a changed top that stayed). If it's ever wrong, the images beside it still show the truth.
+- **What changed is written by code; the model adds only a reason.** The first live test of the short explanation had the model write it, and it said a top "stays out" when it stayed in, and left out an added pair of shoes. So the app builds the facts from the real swaps ("Swapped your black trousers for blue straight jeans and added white sneakers. Your brown leather jacket stays.") and the model adds a title ("A denim, everyday take") and one sentence on why it works. The facts can't be wrong; the reason can only be generic.
+- **A conflict answer has no look to describe,** so every field of the model's answer but the pieces is optional. The first live conflict test failed with a 500 because the schema demanded a title; an answer that doesn't fit the schema is now retried once like any other bad answer.
 - **If the render fails after the stylist has chosen** (a limit, offline), the shopper goes back to the sheet with the reason and the look they had; nothing is left half-applied.
 - **Layout:** the two result buttons wrap their labels, since "Try a Different Look" overflowed a narrow side panel.

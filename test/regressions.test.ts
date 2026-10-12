@@ -5,7 +5,7 @@ import { acknowledgeEvents, queueKey, track } from '../src/shared/analytics.ts';
 import { recoverInterruptedCleanups } from '../src/shared/cleanup.ts';
 import { chainOrder, pruneOutfit } from '../src/shared/outfit.ts';
 import { obsoleteRenderIds, putImage } from '../src/shared/images.ts';
-import { defaultKeep, favoriteIds, nothingToTry, pickCandidates, usablePlan } from '../src/shared/different.ts';
+import { defaultKeep, describeChanges, favoriteIds, nothingToTry, pickCandidates, usablePlan } from '../src/shared/different.ts';
 import { fingerprint, planSync } from '../src/shared/sync-plan.ts';
 import type { Garment } from '../src/shared/types.ts';
 
@@ -230,4 +230,18 @@ test('different look: a plan that no longer fits the closet is not shown', () =>
   assert.equal(usablePlan({ ...plan, kept: ['gone'] }, byId), false);
   byId.set('jeans', piece('jeans', 'dress'));
   assert.equal(usablePlan(plan, byId), false, 'jeans changed kind meanwhile, so the plan about them is stale');
+});
+
+test('different look: what changed is written from the facts', () => {
+  const names: Record<string, string> = { jacket: 'Brown leather jacket', trousers: 'Black trousers', jeans: 'Blue straight jeans', sneakers: 'White sneakers', tee: 'White tee', top: 'ZARA TOP' };
+  const nameOf = (id: string) => names[id];
+  const plan = (kept: string[], changes: { category: 'top' | 'bottom' | 'shoes'; from?: string; to?: string }[]) => ({ title: '', reason: '', outfit: {}, kept, changes });
+  assert.equal(
+    describeChanges(plan(['jacket'], [{ category: 'bottom', from: 'trousers', to: 'jeans' }, { category: 'shoes', to: 'sneakers' }]), nameOf),
+    'Swapped your black trousers for blue straight jeans and added white sneakers. Your brown leather jacket stays.',
+  );
+  assert.equal(describeChanges(plan(['jacket', 'tee'], [{ category: 'bottom', from: 'trousers', to: 'jeans' }]), nameOf), 'Swapped your black trousers for blue straight jeans. Your brown leather jacket and white tee stay.');
+  assert.equal(describeChanges(plan(['top'], [{ category: 'shoes', from: 'sneakers' }]), nameOf), 'Took off your white sneakers. Your ZARA TOP stays.', 'a name in capitals keeps its capitals');
+  assert.equal(describeChanges(plan([], []), nameOf), 'A new combination from your closet.');
+  assert.equal(describeChanges(plan(['gone'], [{ category: 'bottom', from: 'x', to: 'y' }]), nameOf), 'A new combination from your closet.', 'a piece we have no name for is left out, never "undefined"');
 });

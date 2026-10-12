@@ -1,6 +1,6 @@
 import { CATEGORIES, CATEGORY_LABEL, isSaved, type Category, type Draft, type Garment, type Outfit, type SavedLook } from '../shared/types';
 import { productName } from '../shared/infer';
-import { VIBES, nothingToTry, pickCandidates, type LookPlan } from '../shared/different';
+import { VIBES, describeChanges, nothingToTry, pickCandidates, type LookPlan } from '../shared/different';
 import { h } from './dom';
 import { icon } from './icons';
 import { account, authAvailable } from './auth';
@@ -404,7 +404,7 @@ function compareCard(s: ViewState, a: Actions): HTMLElement | null {
     h('p', { class: 'label' }, 'Your new look'),
     h('div', { class: 'cmp-pair' }, figure('Before', d.previous?.imageUrl), figure('After', s.render.imageUrl)),
     h('h3', { class: 'cmp-title' }, d.plan.title),
-    h('p', { class: 'cmp-summary' }, d.plan.summary),
+    h('p', { class: 'cmp-summary' }, `${describeChanges(d.plan, (id) => { const g = s.byId.get(id); return g ? name(g) : undefined; })} ${d.plan.reason}`.trim()),
     d.feedback === undefined
       ? h(
           'p',

@@ -16,7 +16,7 @@ export const VIBES = [
 
 export interface LookPlan {
   title: string; // "A more casual take"
-  summary: string; // one or two short sentences about what changed
+  reason: string; // one short sentence on why it works
   outfit: Outfit; // the whole new look
   kept: string[];
   changes: { category: Category; from?: string; to?: string; why?: string }[]; // `to` missing: taken off
@@ -96,4 +96,28 @@ export function usablePlan(plan: LookPlan, byId: Map<string, Garment>): boolean 
   if (slots.some(([category, id]) => !id || byId.get(id)?.category !== category)) return false;
   const ids = slots.map(([, id]) => id!);
   return Object.keys(pruneOutfit(plan.outfit, byId)).length === ids.length && plan.kept.every((id) => ids.includes(id));
+}
+
+// What changed, in a sentence or two, written from the facts (the stylist's own
+// description of changes was once wrong about what stayed), e.g. "Swapped your
+// black trousers for blue straight jeans and added white sneakers. Your brown
+// leather jacket stays." The stylist adds only a short reason after it.
+export function describeChanges(plan: LookPlan, nameOf: (id: string) => string | undefined): string {
+  // "Brown leather jacket" reads as "your brown leather jacket"; names in caps stay as they are.
+  const plain = (id?: string) => {
+    const n = id ? nameOf(id) : undefined;
+    return n && n.length > 1 && n[1] === n[1].toLowerCase() ? n[0].toLowerCase() + n.slice(1) : n;
+  };
+  const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0]);
+  const did: string[] = [];
+  const swaps = plan.changes.filter((c) => c.from && c.to).flatMap((c) => (plain(c.from) && plain(c.to) ? [`your ${plain(c.from)} for ${plain(c.to)}`] : []));
+  if (swaps.length) did.push(`swapped ${list(swaps)}`);
+  const adds = plan.changes.filter((c) => !c.from && c.to).flatMap((c) => (plain(c.to) ? [plain(c.to)!] : []));
+  if (adds.length) did.push(`added ${list(adds)}`);
+  const offs = plan.changes.filter((c) => c.from && !c.to).flatMap((c) => (plain(c.from) ? [`your ${plain(c.from)}`] : []));
+  if (offs.length) did.push(`took off ${list(offs)}`);
+  const stays = plan.kept.flatMap((id) => (plain(id) ? [plain(id)!] : []));
+  const first = did.length ? `${list(did)}.`.replace(/^./, (c) => c.toUpperCase()) : '';
+  const second = stays.length ? `Your ${list(stays)} ${stays.length > 1 ? 'stay' : 'stays'}.` : '';
+  return [first, second].filter(Boolean).join(' ') || 'A new combination from your closet.';
 }
