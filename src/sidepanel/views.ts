@@ -71,7 +71,6 @@ export interface Actions {
   setView(v: View): void;
   seeTogether(): void;
   openDifferent(): void;
-  closeDifferent(): void;
   toggleKeep(id: string): void;
   toggleVibe(key: string): void;
   setNote(text: string): void;
@@ -352,13 +351,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     h(
       'section',
       { class: 'look', 'aria-label': choosing ? 'Restyling' : 'Your Look' },
-      // The same row in both modes (so nothing shifts); on the restyle screen it has a way back to the look.
-      h(
-        'div',
-        { class: 'look-head' },
-        choosing && h('button', { type: 'button', class: 'back-button', 'aria-label': 'Back to your look', onclick: a.closeDifferent }, icon('back'), 'Back'),
-        h('h2', { class: 'label look-title' }, choosing ? 'Restyling' : 'Your Look'),
-      ),
+      h('h2', { class: 'label look-title' }, choosing ? 'Restyling' : 'Your Look'),
       h('div', { class: 'look-stage' }, choosing ? differentBox(s, a, worn) : lookFrame(s, a, worn), picked(s, a, worn)),
       choosing
         ? differentButtons(s, a, worn)
@@ -399,8 +392,13 @@ function differentBox(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
       'div',
       { class: 'dl-body' },
       h('div', { class: 'dl-ask' }, h('img', { class: 'dl-mark', src: '/brand/monogram.png', alt: '' }), h('p', { class: 'dl-question' }, 'How would you style it differently?')),
-      h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'data-vibe': v.key, 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
-      h('textarea', { class: 'dl-note', rows: 3, maxlength: 200, placeholder: 'Or tell Cabine what you have in mind.\ne.g. “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
+      // One direction at most, so a single-choice control (one connected bar, one filled segment), not chips that look like checkboxes.
+      h(
+        'div',
+        { class: 'seg', role: 'radiogroup', 'aria-label': 'Direction' },
+        ...VIBES.map((v) => h('button', { type: 'button', class: 'seg-option', role: 'radio', 'data-vibe': v.key, 'aria-checked': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label)),
+      ),
+      h('textarea', { class: 'dl-note', rows: 4, maxlength: 200, placeholder: 'Or tell Cabine what you have in mind.\ne.g. “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
       d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
       d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
       h('p', { class: 'dl-blocked small muted', hidden: !blocked }, blocked ?? ''),
@@ -414,8 +412,8 @@ function differentButtons(s: ViewState, a: Actions, worn: Garment[]): HTMLElemen
   return h(
     'div',
     { class: 'result-row' },
-    h('button', { type: 'button', class: 'btn btn-primary', 'data-generate': '', disabled: blocked, onclick: a.generateDifferent }, 'Generate new look', icon('arrow')),
-    h('button', { type: 'button', class: 'btn btn-secondary', disabled: d.step === 'planning', onclick: a.pickMyself }, 'Pick pieces myself'),
+    h('button', { type: 'button', class: 'btn btn-primary', 'data-generate': '', disabled: blocked, onclick: a.generateDifferent }, 'Generate look', icon('arrow')),
+    h('button', { type: 'button', class: 'btn btn-secondary', disabled: d.step === 'planning', onclick: a.pickMyself }, 'Style it myself'),
   );
 }
 
@@ -425,7 +423,7 @@ function differentButtons(s: ViewState, a: Actions, worn: Garment[]): HTMLElemen
 export function syncDifferent(s: ViewState): void {
   const d = s.different;
   if (!d) return;
-  for (const chip of document.querySelectorAll<HTMLElement>('.different-box .chip')) chip.setAttribute('aria-pressed', String(d.vibes.includes(chip.dataset.vibe ?? '')));
+  for (const option of document.querySelectorAll<HTMLElement>('.different-box .seg-option')) option.setAttribute('aria-checked', String(d.vibes.includes(option.dataset.vibe ?? '')));
   const worn = wornPieces(s);
   for (const box of document.querySelectorAll<HTMLElement>('.pick-toggle')) {
     const g = worn.find((x) => x.id === box.dataset.piece);

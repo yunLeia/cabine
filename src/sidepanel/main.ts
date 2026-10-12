@@ -144,11 +144,6 @@ const actions: Actions = {
     window.scrollTo({ top: 0 }); // the sheet is over the mannequin, at the top (instant: a smooth scroll is cancelled by the redraw)
   },
 
-  closeDifferent() {
-    endDifferent();
-    render();
-  },
-
   toggleKeep(id) {
     const d = state.different;
     if (!d) return;
@@ -157,10 +152,11 @@ const actions: Actions = {
     syncDifferent(state); // in place: a redraw would make the box flicker
   },
 
+  // One direction at most: choosing one replaces the last, and choosing it again clears it.
   toggleVibe(key) {
     const d = state.different;
     if (!d) return;
-    d.vibes = d.vibes.includes(key) ? d.vibes.filter((x) => x !== key) : [...d.vibes, key];
+    d.vibes = d.vibes.includes(key) ? [] : [key];
     syncDifferent(state);
   },
 

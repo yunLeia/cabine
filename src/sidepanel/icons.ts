@@ -4,7 +4,6 @@ import { h } from './dom';
 // markup, set with innerHTML.
 const PATHS = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
-  back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
   heartFilled: '<path fill="currentColor" d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',

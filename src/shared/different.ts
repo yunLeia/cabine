@@ -6,10 +6,10 @@ import type { Category, Garment, Outfit } from './types';
 // server only picks among the pieces this sends, and the server checks its answer.
 
 export const VIBES = [
-  { key: 'casual', label: 'More casual' },
-  { key: 'minimal', label: 'More minimal' },
-  { key: 'edgy', label: 'More edgy' },
-  { key: 'formal', label: 'More formal' },
+  { key: 'casual', label: 'Casual' },
+  { key: 'minimal', label: 'Minimal' },
+  { key: 'edgy', label: 'Edgy' },
+  { key: 'formal', label: 'Formal' },
 ] as const;
 
 export interface LookPlan {

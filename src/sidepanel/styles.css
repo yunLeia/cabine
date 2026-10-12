@@ -133,11 +133,7 @@ main { padding: 0 16px; }
 
 /* ---- Your Look ---- */
 .look { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-.look-head { display: flex; align-items: center; gap: 12px; padding-top: 8px; min-height: 40px; }
-.look-title { padding-top: 0; }
-.back-button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px 4px 0; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
-.back-button .icon { width: 14px; height: 14px; }
-.back-button:hover { color: var(--ink); }
+.look-title { padding-top: 16px; }
 .look-stage { display: grid; grid-template-columns: minmax(0, 1fr) 68px; gap: 10px; margin-top: 10px; align-items: start; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .cta { margin-top: 16px; }
@@ -325,7 +321,7 @@ main { padding: 0 16px; }
 /* ---- Try a Different Look (D36): the sheet, the suggestion, Before / After ---- */
 /* A short comment above the result buttons. */
 .explain { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
-.dl-note { width: 100%; resize: none; font: inherit; font-size: 12.5px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; color: var(--ink); }
+.dl-note { width: 100%; resize: none; font: inherit; font-size: 12px; padding: 10px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; color: var(--ink); }
 .dl-note:focus { outline: none; border-color: var(--accent-strong); }
 .dl-error { color: var(--danger); }
 .dl-conflict { padding: 10px 12px; background: var(--cream); border-radius: var(--radius); }
@@ -338,11 +334,10 @@ main { padding: 0 16px; }
 /* The very same box as the look preview (.render-frame), so nothing changes size when it opens. If a
    very narrow panel can't fit the content, the box scrolls inside itself rather than growing. */
 .different-box { overflow-y: auto; }
-.dl-body { display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; padding: 16px 14px; }
+.dl-body { display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; padding: 16px 12px; }
 .dl-ask { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; } /* a little more air between the question and its options */
-.dl-mark { width: 24px; height: auto; flex: none; display: block; }
+.dl-mark { width: 18px; height: auto; flex: none; display: block; }
 .dl-question { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
-.dl-body .chips { margin: 0; gap: 8px; }
 .dl-blocked { margin: 0; }
 
 /* The piece boxes choose Keep / Change on that screen. */
@@ -370,3 +365,11 @@ main { padding: 0 16px; }
   100% { transform: scaleX(0.97); }
 }
 @media (prefers-reduced-motion: reduce) { .progress-fill { animation: none; transform: scaleX(0.6); } }
+
+/* The direction: one connected bar, one filled segment. On a very narrow panel it becomes two rows of two. */
+.seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg-option { min-width: 0; padding: 9px 2px; border: 0; background: #fff; color: var(--ink); font: inherit; font-size: 12px; text-align: center; overflow-wrap: anywhere; cursor: pointer; transition: background-color 150ms var(--ease); }
+.seg-option:hover { background: #f5f7fb; }
+.seg-option[aria-checked='true'] { background: var(--accent); font-weight: 600; }
+@media (max-width: 350px) { .seg { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dl-note::placeholder { color: #b8b8b4; } /* the example fades back, so it reads as a hint and not as typed text */
