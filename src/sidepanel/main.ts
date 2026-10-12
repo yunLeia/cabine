@@ -4,7 +4,7 @@ import '@fontsource-variable/inter';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, pruneRenderCache, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { defaultKeep, favoriteIds, pickCandidates, usablePlan, type LookPlan } from '../shared/different';
+import { defaultKeep, pickCandidates, usablePlan, type LookPlan } from '../shared/different';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
@@ -177,8 +177,7 @@ const actions: Actions = {
     const run = ++differentRun;
     const stale = () => run !== differentRun || state.different !== d;
     const worn = wornPieces(state);
-    const favorites = d.vibes.includes('like-me') ? favoriteIds(state.savedLooks, state.byId) : [];
-    const candidates = pickCandidates(state.garments, worn, d.keep, favorites);
+    const candidates = pickCandidates(state.garments, worn, d.keep);
     const comeBack = (message: string) => {
       d.step = 'ask';
       d.plan = undefined;
@@ -199,7 +198,6 @@ const actions: Actions = {
         candidates,
         vibes: d.vibes,
         note: d.note,
-        favorites,
         avoid: d.tried,
       });
       if (stale()) return;

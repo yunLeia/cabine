@@ -5,7 +5,7 @@ import { acknowledgeEvents, queueKey, track } from '../src/shared/analytics.ts';
 import { recoverInterruptedCleanups } from '../src/shared/cleanup.ts';
 import { chainOrder, pruneOutfit } from '../src/shared/outfit.ts';
 import { obsoleteRenderIds, putImage } from '../src/shared/images.ts';
-import { defaultKeep, describeChanges, favoriteIds, nothingToTry, pickCandidates, usablePlan } from '../src/shared/different.ts';
+import { defaultKeep, describeChanges, nothingToTry, pickCandidates, usablePlan } from '../src/shared/different.ts';
 import { fingerprint, planSync } from '../src/shared/sync-plan.ts';
 import type { Garment } from '../src/shared/types.ts';
 
@@ -192,29 +192,20 @@ test('different look: candidates are closet pieces that fit around what is kept'
   const all = [coat, trousers, jeans, skirt, gown, parka, shoes, other];
   const ids = (list: Garment[]) => list.map((g) => g.id);
 
-  const found = pickCandidates(all, [coat, trousers], ['coat'], []);
+  const found = pickCandidates(all, [coat, trousers], ['coat']);
   assert.deepEqual(ids(found), ['skirt', 'jeans', 'gown', 'shoes'], 'bottoms first (the kind being replaced), newest first; no kept kind, no worn piece, no store piece');
-  assert.deepEqual(ids(pickCandidates(all, [coat, trousers], ['coat'], ['jeans'])).slice(0, 2), ['jeans', 'skirt'], 'favorites come first');
 
   // Keeping a top means no dress; keeping a dress means no top or bottom.
   const top = piece('top1', 'top', 'fittingRoom');
-  assert.ok(!ids(pickCandidates([top, gown, jeans], [top], ['top1'], [])).includes('gown'));
-  assert.deepEqual(ids(pickCandidates([gown, jeans, piece('shirt', 'top'), shoes, parka], [gown], ['gown'], [])).sort(), ['parka', 'shoes']);
+  assert.ok(!ids(pickCandidates([top, gown, jeans], [top], ['top1'])).includes('gown'));
+  assert.deepEqual(ids(pickCandidates([gown, jeans, piece('shirt', 'top'), shoes, parka], [gown], ['gown'])).sort(), ['parka', 'shoes']);
 
   // No more than 8 of a kind, 24 in all.
   const many = Array.from({ length: 30 }, (_, i) => piece(`b${i}`, 'bottom', 'closet', { createdAt: i }));
-  assert.equal(pickCandidates(many, [coat], ['coat'], []).length, 8);
+  assert.equal(pickCandidates(many, [coat], ['coat']).length, 8);
 });
 
-test('different look: favorites come from saved looks; nothing-to-try says why', () => {
-  const byId = new Map([piece('a', 'top'), piece('b', 'bottom'), piece('s', 'top', 'fittingRoom')].map((g) => [g.id, g]));
-  const looks = [
-    { key: 'k1', createdAt: 1, outfit: { top: 'a', bottom: 'b' } },
-    { key: 'k2', createdAt: 2, outfit: { top: 'a', outerwear: 's' } },
-    { key: 'k3', createdAt: 3, outfit: { bottom: 'b' }, saved: false },
-  ];
-  assert.deepEqual(favoriteIds(looks, byId), ['a', 'b'], 'closet pieces only, most-used first, unsaved looks ignored');
-
+test('different look: nothing-to-try says why', () => {
   const coat = piece('coat', 'outerwear', 'fittingRoom');
   assert.match(nothingToTry([coat], [], []) ?? '', /Keep at least one/);
   assert.match(nothingToTry([coat], ['coat'], []) ?? '', /Choose a piece to change/);

@@ -232,6 +232,10 @@ const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
 
 const MANNEQUIN = '/mannequin.jpg';
 
+// Work in progress, with no numbers: the brand gradient, the one under the selected
+// tab, sliding along a thin track.
+const progressBar = () => h('div', { class: 'progress', 'aria-hidden': 'true' });
+
 // The mannequin frame: empty until you ask to see the look, then "Putting it
 // together…", then the result. It keeps the mannequin's proportions so the whole
 // figure is always visible, however wide the panel is.
@@ -244,7 +248,7 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
       { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
       h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
       // The C draws itself into the hanger while we wait (scripts/brand-loading.py).
-      h('div', { class: 'frame-overlay' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Putting it together…'), h('p', { class: 'muted small' }, r.cached ? 'Almost there' : 'About 15 seconds')),
+      h('div', { class: 'frame-overlay' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Putting it together…'), progressBar()),
     );
   }
   if (r?.status === 'error' && current) {
@@ -279,6 +283,30 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
 // just joined the look plays the drop-in animation, so nothing else seems to reload.
 const placed = new Set<string>();
 function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  // On the "Try a Different Look" screen the same boxes choose what to keep: a tap
+  // flips a piece between Keep and Change.
+  const d = s.different;
+  if (d && (d.step === 'ask' || d.step === 'planning')) {
+    placed.clear();
+    worn.forEach((g) => placed.add(g.id));
+    return h(
+      'ul',
+      { class: 'picked choosing' },
+      ...worn.map((g) => {
+        const kept = d.keep.includes(g.id);
+        return h(
+          'li',
+          { class: 'picked-piece' },
+          h(
+            'button',
+            { type: 'button', class: 'pick-toggle', 'aria-pressed': kept, disabled: d.step === 'planning', title: `${name(g)}: tap to ${kept ? 'change' : 'keep'} it`, onclick: () => a.toggleKeep(g.id) },
+            img(thumbSrc(g), 'picked-img', name(g)),
+            h('span', { class: 'pick-state' }, kept ? 'Keep' : 'Change'),
+          ),
+        );
+      }),
+    );
+  }
   const fresh = new Set(worn.filter((g) => !placed.has(g.id)).map((g) => g.id));
   placed.clear();
   worn.forEach((g) => placed.add(g.id));
@@ -305,28 +333,29 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
   const step = s.different?.step;
-  const sheet = step === 'ask' || step === 'planning';
+  // "Try a Different Look" is a screen of its own: the look preview turns into its
+  // settings, the piece boxes choose Keep / Change, and the two buttons change.
+  const choosing = step === 'ask' || step === 'planning';
   return h(
     'div',
     { class: 'main-page' },
     h(
       'section',
-      { class: 'look', 'aria-label': 'Your Look' },
-      h('h2', { class: 'label look-title' }, 'Your Look'),
-      // The Keep / Change sheet sits over the mannequin, so nothing needs scrolling to.
-      h('div', { class: 'look-stage-wrap' }, h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)), sheet && differentSheet(s, a, worn)),
-      sheet
-        ? null
+      { class: 'look', 'aria-label': choosing ? 'Try a Different Look' : 'Your Look' },
+      h('h2', { class: 'label look-title' }, choosing ? 'Try a Different Look' : 'Your Look'),
+      h('div', { class: 'look-stage' }, choosing ? differentBox(s, a, worn) : lookFrame(s, a, worn), picked(s, a, worn)),
+      choosing
+        ? differentButtons(s, a, worn)
         : rendered
           ? h(
               'div',
               { class: 'result-wrap' },
-              s.different?.step === 'compare' && explainBlock(s, a),
+              step === 'compare' && explainBlock(s, a),
               h(
                 'div',
                 { class: 'result-row' },
                 h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, icon(saved ? 'heartFilled' : 'heart'), saved ? 'Saved' : 'Save this look'),
-                h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.openDifferent }, icon('refresh'), s.different?.step === 'compare' ? 'Try Another Look' : 'Try a Different Look'),
+                h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.openDifferent }, icon('refresh'), step === 'compare' ? 'Try Another Look' : 'Try a Different Look'),
               ),
             )
           : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
@@ -336,59 +365,42 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
 }
 
 // ---- Try a Different Look ---------------------------------------------------------
-// The shopper keeps the piece(s) they choose and asks for another direction in a
-// sheet laid over the mannequin; one tap generates it. The new look becomes the
-// mannequin, with a short comment above the buttons saying what changed.
+// The look preview turns into this screen: just "What do you want to change?" with
+// four directions and an optional note. What to keep is chosen on the piece boxes
+// beside it (a tap flips Keep / Change), and one tap on the button generates it. The
+// new look then becomes the mannequin, with a short comment above the buttons.
 
-const thumb = (g: Garment | undefined, cls = 'dl-img') => (g ? img(thumbSrc(g), cls, name(g)) : h('span', { class: `${cls} thumb-empty` }));
-
-function differentSheet(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+function differentBox(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const d = s.different!;
-  const head = [
-    h('h3', { class: 'dl-title' }, 'Try a Different Look'),
-    h('p', { class: 'muted small' }, 'Keep the piece. Explore another way to wear it.'),
-  ];
   if (d.step === 'planning') {
-    return h(
-      'section',
-      { class: 'different overlay', 'aria-label': 'Try a Different Look' },
-      ...head,
-      h('div', { class: 'dl-working', role: 'status' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Looking through your closet…'), h('p', { class: 'muted small' }, 'A few seconds')),
-    );
+    return h('div', { class: 'render-frame different-box', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'dl-working' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Looking through your closet…'), progressBar()));
   }
-  const candidates = pickCandidates(s.garments, worn, d.keep, []);
-  const blocked = nothingToTry(worn, d.keep, candidates);
+  const blocked = nothingToTry(worn, d.keep, pickCandidates(s.garments, worn, d.keep));
   return h(
-    'section',
-    { class: 'different overlay', 'aria-label': 'Try a Different Look' },
-    ...head,
-    h('p', { class: 'label dl-label' }, 'Keep'),
+    'div',
+    { class: 'render-frame different-box' },
     h(
       'div',
-      { class: 'keep-row' },
-      ...worn.map((g) => {
-        const kept = d.keep.includes(g.id);
-        return h(
-          'button',
-          { type: 'button', class: 'keep-piece', 'aria-pressed': kept, title: name(g), onclick: () => a.toggleKeep(g.id) },
-          thumb(g),
-          h('span', { class: 'keep-state small' }, kept ? 'Keep' : 'Change'),
-        );
-      }),
+      { class: 'dl-body' },
+      h('p', { class: 'dl-question' }, 'What do you want to change?'),
+      h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
+      h('textarea', { class: 'dl-note', rows: 3, maxlength: 200, placeholder: 'e.g. “try with denim”, “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
+      h('p', { class: 'dl-hint small muted' }, 'Tap the pieces on the right to keep or change them.'),
+      d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
+      d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
+      blocked && h('p', { class: 'small muted' }, blocked),
     ),
-    h('p', { class: 'label dl-label' }, 'What do you want to change?'),
-    h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
-    h('textarea', { class: 'dl-note', rows: 2, maxlength: 200, placeholder: 'Tell Cabine what feels off… e.g. “too formal”, “try with denim”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
-    d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
-    d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
-    blocked && h('p', { class: 'muted small dl-hint' }, blocked),
-    h(
-      'div',
-      { class: 'dl-actions' },
-      h('button', { type: 'button', class: 'btn btn-primary', disabled: !!blocked, onclick: a.generateDifferent }, 'Generate new look', icon('arrow')),
-      h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.pickMyself }, 'Pick pieces myself'),
-    ),
-    h('button', { type: 'button', class: 'text-button small dl-cancel', onclick: a.closeDifferent }, 'Cancel'),
+  );
+}
+
+function differentButtons(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  const d = s.different!;
+  const blocked = d.step === 'planning' || !!nothingToTry(worn, d.keep, pickCandidates(s.garments, worn, d.keep));
+  return h(
+    'div',
+    { class: 'result-row' },
+    h('button', { type: 'button', class: 'btn btn-primary', disabled: blocked, onclick: a.generateDifferent }, 'Generate new look', icon('arrow')),
+    h('button', { type: 'button', class: 'btn btn-secondary', disabled: d.step === 'planning', onclick: a.pickMyself }, 'Pick pieces myself'),
   );
 }
 

@@ -1,5 +1,5 @@
 import { pruneOutfit } from './outfit.ts';
-import type { Category, Garment, Outfit, SavedLook } from './types';
+import type { Category, Garment, Outfit } from './types';
 
 // "Try a Different Look" (D36): keep some pieces, explore another way to wear
 // them with clothes you own. The choices here are rules; the AI stylist on the
@@ -7,11 +7,9 @@ import type { Category, Garment, Outfit, SavedLook } from './types';
 
 export const VIBES = [
   { key: 'casual', label: 'More casual' },
-  { key: 'polished', label: 'More polished' },
   { key: 'minimal', label: 'More minimal' },
-  { key: 'feminine', label: 'More feminine' },
   { key: 'edgy', label: 'More edgy' },
-  { key: 'like-me', label: 'More like me' },
+  { key: 'formal', label: 'More formal' },
 ] as const;
 
 export interface LookPlan {
@@ -43,13 +41,13 @@ const clashes = (a: Category, b: Category) => (a === 'dress' && (b === 'top' || 
 
 // Closet pieces that could join the kept ones: not already in the look, of a kind
 // the kept pieces leave free, and not clashing with them. Pieces of the kinds
-// being moved away from come first, then favorites, then what was used lately.
-export function pickCandidates(garments: Garment[], worn: Garment[], keep: string[], favorites: string[]): Garment[] {
+// being moved away from come first, then what was used lately.
+export function pickCandidates(garments: Garment[], worn: Garment[], keep: string[]): Garment[] {
   const kept = worn.filter((g) => keep.includes(g.id));
   const inLook = new Set(worn.map((g) => g.id));
   const keptKinds = new Set(kept.map((g) => g.category));
   const replacing = new Set(worn.filter((g) => !keep.includes(g.id)).map((g) => g.category));
-  const rank = (g: Garment) => [replacing.has(g.category) ? 0 : 1, favorites.includes(g.id) ? 0 : 1, -(g.lastUsedAt ?? 0), -g.createdAt];
+  const rank = (g: Garment) => [replacing.has(g.category) ? 0 : 1, -(g.lastUsedAt ?? 0), -g.createdAt];
   const byRank = (a: Garment, b: Garment) => {
     const [ra, rb] = [rank(a), rank(b)];
     for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
@@ -67,17 +65,6 @@ export function pickCandidates(garments: Garment[], worn: Garment[], keep: strin
       return n < MAX_PER_KIND;
     })
     .slice(0, MAX_CANDIDATES);
-}
-
-// Closet pieces the shopper keeps choosing for looks they saved: their taste, for "More like me".
-export function favoriteIds(savedLooks: SavedLook[], byId: Map<string, Garment>): string[] {
-  const counts = new Map<string, number>();
-  for (const look of savedLooks.filter((l) => l.saved !== false)) {
-    for (const id of Object.values(look.outfit)) {
-      if (id && byId.get(id)?.location === 'closet') counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-  }
-  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([id]) => id);
 }
 
 // Why there's nothing to try, or null when there is.

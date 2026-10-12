@@ -167,7 +167,6 @@ export interface PlanRequest {
   candidates: Garment[];
   vibes: string[];
   note: string;
-  favorites: string[];
   avoid: string[][];
 }
 
@@ -191,7 +190,6 @@ export async function requestPlan(r: PlanRequest): Promise<PlanResult> {
       candidates: candidates.filter(Boolean), // a missing photo just means that piece isn't offered
       vibes: r.vibes,
       note: r.note,
-      favorites: r.favorites,
       avoid: r.avoid,
     },
     60_000,

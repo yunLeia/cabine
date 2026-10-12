@@ -681,7 +681,6 @@ export interface PlanInput {
   candidates: PlanPiece[]; // closet pieces that may be used
   vibes: string[]; // keys of VIBES
   note?: string;
-  favorites: string[]; // closet pieces the user keeps choosing for looks they saved
   avoid: string[][]; // combinations (piece ids) already shown
 }
 export interface RawPlan {
@@ -707,11 +706,9 @@ export interface LookPlan {
 
 const VIBES: Record<string, string> = {
   casual: 'more casual and relaxed: easier, everyday, less dressy',
-  polished: 'more polished and put-together',
   minimal: 'more minimal: clean lines, a few quiet colors, nothing fussy',
-  feminine: 'more feminine',
   edgy: 'more edgy: sharper, darker or more daring',
-  'like-me': 'closer to the shopper’s own taste, judged by their favorites (pieces they chose for looks they saved)',
+  formal: 'more formal: dressier, more structured and put-together',
 };
 const PIECE_ID = /^[A-Za-z0-9_.:-]{1,80}$/;
 const MAX_PLAN_IMAGE_BYTES = 200_000; // thumbnails
@@ -744,7 +741,7 @@ export function parsePlanRequest(body: Record<string, unknown>): PlanInput {
   const note = typeof body.note === 'string' ? body.note.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) : '';
   const ids = (raw: unknown, max: number) => (Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && PIECE_ID.test(x)).slice(0, max) : []);
   const avoid = Array.isArray(body.avoid) ? body.avoid.slice(0, 5).map((a) => ids(a, 5)) : [];
-  return { keep, current, candidates, vibes: vibes as string[], note: note || undefined, favorites: ids(body.favorites, 12), avoid };
+  return { keep, current, candidates, vibes: vibes as string[], note: note || undefined, avoid };
 }
 
 // Candidates that haven't appeared in any look shown so far (or the current one).
@@ -877,7 +874,6 @@ Rules:
 - Choose at most one piece per kind (top, bottom, dress, outerwear, shoes). Never choose a kind that a KEPT piece already covers. A dress is never worn with a top or bottom.
 - The new look must be meaningfully different from the CURRENT look: a different silhouette, formality or texture, not just a slightly different color of the same thing. Match the requested direction.
 - Prefer a complete, wearable look: if the kept pieces and your picks leave out something obvious (shoes, a bottom), add the best candidate if one exists.
-- If favorites are listed, they are pieces the shopper chooses often; lean toward them when the direction is "like me".
 - Write "title" as 2 to 5 words naming the new direction, e.g. "A more casual take".
 - Write "reason" as one short sentence (under 120 characters) on why the new look works, in plain language and without hype, e.g. "The relaxed silhouette gives it a more everyday feel." Do not list the pieces or the changes: the app already shows what changed.
 - Write "why" as one short clause per piece.
@@ -905,7 +901,6 @@ function plannerMessages(input: PlanInput, feedback?: string) {
     text:
       `Direction wanted: ${direction}.\n` +
       (input.note ? `The shopper's note: "${input.note}"\n` : '') +
-      (input.favorites.length ? `Favorites (candidate ids): ${input.favorites.join(', ')}\n` : '') +
       (input.avoid.length
         ? `Already shown, do not repeat: ${input.avoid.map((a) => `[${a.join(', ')}]`).join(' ')}\n` +
           `Change at least one piece compared with every look above. If the note asks for one thing (say denim) and that piece was already used, keep the spirit but vary another piece.\n` +

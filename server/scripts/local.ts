@@ -43,7 +43,8 @@ const store: Store = {
 const deps: Deps = {
   store,
   events: { record: async (rows) => console.log('events', rows.map((r) => r.name).join(', ')), countSince: async () => 0, forget: async () => {} },
-  provider: { id: 'local-fake', credits: 1, render: async (items) => items[0].bytes },
+  // DELAY_MS slows the fakes down so loading states can be looked at.
+  provider: { id: 'local-fake', credits: 1, render: async (items) => (await new Promise((r) => setTimeout(r, Number(process.env.DELAY_MS ?? 0))), items[0].bytes) },
   extractor: { id: 'local-fake', credits: 1, extract: async (item) => item.bytes },
   clientKey: process.env.CABINE_CLIENT_KEY ?? 'dev-key',
   dailyCreditLimit: 1000,
@@ -53,6 +54,7 @@ const deps: Deps = {
   planner: {
     id: 'local-fake',
     async plan(input, feedback) {
+      await new Promise((r) => setTimeout(r, Number(process.env.DELAY_MS ?? 0)));
       // Type "conflict" in the note to see the stylist's question instead of a look.
       if (input.note?.toLowerCase().includes('conflict')) return { title: '', reason: '', conflict: 'You asked for a different jacket, but the jacket is kept. Tap it to Change, or clear the note.', pieces: [] };
       // For each piece being moved away from, the first unused candidate of its kind; if the
