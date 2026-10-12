@@ -61,7 +61,8 @@ const deps: Deps = {
       const picks = input.current.map((cur) => unused.find((c) => c.category === cur.category) ?? cur);
       const pieces = picks.map((c) => ({ id: c.id, why: 'a different feel' }));
       const keptName = input.keep[0]?.title ?? 'piece';
-      return { title: input.vibes.length ? `A ${input.vibes[0]} take` : 'A different take', reason: 'A change of pace.', pieces };
+      const labels = [...input.keep, ...input.current, ...input.candidates].map((c) => ({ id: c.id, label: (c.title ?? c.category).toLowerCase() }));
+      return { labels, title: input.vibes.length ? `A ${input.vibes[0]} take` : 'A different take', reason: 'A change of pace.', pieces };
     },
   },
 };

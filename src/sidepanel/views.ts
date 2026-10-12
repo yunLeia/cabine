@@ -28,7 +28,7 @@ export interface RenderState {
 }
 
 // "Try a Different Look" (D36, D37): ask → planning (the stylist picks) → making
-// (the render) → compare (Before / After with a short explanation).
+// (the render) → compare (a short comment above the buttons; the new look is the mannequin).
 export interface DifferentState {
   step: 'ask' | 'planning' | 'making' | 'compare';
   keep: string[]; // pieces to keep, by garment id
@@ -37,7 +37,6 @@ export interface DifferentState {
   conflict?: string; // a short question when the request contradicts itself; nothing was made
   plan?: LookPlan; // what the stylist chose, for the explanation under Before / After
   tried: string[][]; // combinations already made, so "Try Another Look" is new
-  previous?: { key: string; outfit: Outfit; imageUrl?: string }; // the look before, for Before / After
   feedback?: boolean; // "Was this closer to what you wanted?" answered: true = yes
   error?: string;
 }
@@ -70,7 +69,6 @@ export interface Actions {
   takeOff(g: Garment): void;
   setView(v: View): void;
   seeTogether(): void;
-  tryAnother(): void;
   openDifferent(): void;
   closeDifferent(): void;
   toggleKeep(id: string): void;
@@ -315,14 +313,15 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
       'section',
       { class: 'look', 'aria-label': 'Your Look' },
       h('h2', { class: 'label look-title' }, 'Your Look'),
-      h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)),
+      // The Keep / Change sheet sits over the mannequin, so nothing needs scrolling to.
+      h('div', { class: 'look-stage-wrap' }, h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)), sheet && differentSheet(s, a, worn)),
       sheet
-        ? differentSheet(s, a, worn)
+        ? null
         : rendered
           ? h(
               'div',
               { class: 'result-wrap' },
-              s.different?.step === 'compare' && compareCard(s, a),
+              s.different?.step === 'compare' && explainBlock(s, a),
               h(
                 'div',
                 { class: 'result-row' },
@@ -337,9 +336,9 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
 }
 
 // ---- Try a Different Look ---------------------------------------------------------
-// The shopper keeps the piece(s) they choose and asks for another direction. The
-// stylist's answer is shown as a sentence and a list of swaps before anything is
-// made, then the new look comes back next to the old one with what changed.
+// The shopper keeps the piece(s) they choose and asks for another direction in a
+// sheet laid over the mannequin; one tap generates it. The new look becomes the
+// mannequin, with a short comment above the buttons saying what changed.
 
 const thumb = (g: Garment | undefined, cls = 'dl-img') => (g ? img(thumbSrc(g), cls, name(g)) : h('span', { class: `${cls} thumb-empty` }));
 
@@ -352,7 +351,7 @@ function differentSheet(s: ViewState, a: Actions, worn: Garment[]): HTMLElement 
   if (d.step === 'planning') {
     return h(
       'section',
-      { class: 'different', 'aria-label': 'Try a Different Look' },
+      { class: 'different overlay', 'aria-label': 'Try a Different Look' },
       ...head,
       h('div', { class: 'dl-working', role: 'status' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Looking through your closet…'), h('p', { class: 'muted small' }, 'A few seconds')),
     );
@@ -361,7 +360,7 @@ function differentSheet(s: ViewState, a: Actions, worn: Garment[]): HTMLElement 
   const blocked = nothingToTry(worn, d.keep, candidates);
   return h(
     'section',
-    { class: 'different', 'aria-label': 'Try a Different Look' },
+    { class: 'different overlay', 'aria-label': 'Try a Different Look' },
     ...head,
     h('p', { class: 'label dl-label' }, 'Keep'),
     h(
@@ -393,18 +392,19 @@ function differentSheet(s: ViewState, a: Actions, worn: Garment[]): HTMLElement 
   );
 }
 
-function compareCard(s: ViewState, a: Actions): HTMLElement | null {
+// A short comment above the buttons: a title, what changed in plain words, one reason, and the quality question.
+function explainBlock(s: ViewState, a: Actions): HTMLElement | null {
   const d = s.different;
-  if (!d?.plan || !s.render?.imageUrl) return null;
-  const figure = (label: string, src?: string) =>
-    h('figure', { class: 'cmp-fig' }, src ? h('img', { class: 'cmp-img', src, alt: `${label} look` }) : h('div', { class: 'cmp-img thumb-empty' }), h('figcaption', { class: 'label' }, label));
+  if (!d?.plan) return null;
+  const kindWord = (id: string) => {
+    const g = s.byId.get(id);
+    return g ? CATEGORY_LABEL[g.category].toLowerCase() : undefined;
+  };
   return h(
     'section',
-    { class: 'compare', 'aria-label': 'Your new look, before and after' },
-    h('p', { class: 'label' }, 'Your new look'),
-    h('div', { class: 'cmp-pair' }, figure('Before', d.previous?.imageUrl), figure('After', s.render.imageUrl)),
+    { class: 'explain', 'aria-label': 'About this look' },
     h('h3', { class: 'cmp-title' }, d.plan.title),
-    h('p', { class: 'cmp-summary' }, `${describeChanges(d.plan, (id) => { const g = s.byId.get(id); return g ? name(g) : undefined; })} ${d.plan.reason}`.trim()),
+    h('p', { class: 'cmp-summary' }, `${describeChanges(d.plan, kindWord)} ${d.plan.reason}`.trim()),
     d.feedback === undefined
       ? h(
           'p',

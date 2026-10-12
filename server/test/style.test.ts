@@ -631,7 +631,10 @@ const tests: [string, () => Promise<void>][] = [
       id: 'fake',
       async plan(input) {
         seen.push(input);
-        return { reason: 'Got it.', title: 'More casual', pieces: [{ id: 'jeans', why: 'relaxed' }, { id: 'sneakers', why: 'easy' }] };
+        return {
+          reason: 'Got it.', title: 'More casual', pieces: [{ id: 'jeans', why: 'relaxed' }, { id: 'sneakers', why: 'easy' }],
+          labels: [{ id: 'jacket', label: ' Black   JACKET! ' }, { id: 'jeans', label: 'blue jeans' }, { id: 'skirt', label: 'not in the look' }, { id: 'ghost', label: 'never sent' }, { id: 'sneakers', label: '' }],
+        };
       },
     };
     const piece = (id: string, category: string, title?: string) => ({ id, category, title, image: img(id) });
@@ -647,6 +650,7 @@ const tests: [string, () => Promise<void>][] = [
     assert.deepEqual(r.body.kept, ['jacket']);
     assert.equal(r.body.title, 'More casual');
     assert.equal(r.body.reason, 'Got it.');
+    assert.deepEqual(r.body.labels, { jacket: 'black jacket', jeans: 'blue jeans' }, 'plain labels for pieces in the look only, cleaned up; blank and unknown ones dropped');
     assert.deepEqual(r.body.changes, [
       { category: 'bottom', from: 'trousers', to: 'jeans', why: 'relaxed' },
       { category: 'shoes', from: undefined, to: 'sneakers', why: 'easy' },

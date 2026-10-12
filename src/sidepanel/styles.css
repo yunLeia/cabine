@@ -47,8 +47,10 @@ p { margin: 0; }
 /* ---- Buttons: pills, uppercase semibold labels ---- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 40px; padding: 0 18px; border-radius: var(--pill); border: 1px solid transparent;
-  font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; text-decoration: none; white-space: nowrap;
+  min-height: 40px; padding: 8px 18px; border-radius: var(--pill); border: 1px solid transparent;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; text-decoration: none;
+  /* Text wraps inside the button, whatever the width: it never runs out of it. */
+  white-space: normal; text-align: center; line-height: 1.25; overflow-wrap: anywhere; min-width: 0; max-width: 100%;
   transition: background-color 160ms var(--ease), border-color 160ms var(--ease), box-shadow 160ms var(--ease), transform 120ms var(--ease);
 }
 .btn:active { transform: translateY(1px); }
@@ -122,7 +124,7 @@ main { padding: 0 16px; }
 
 .type-options { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .type-option {
-  cursor: pointer; font-size: 12px; padding: 4px 12px; border-radius: var(--pill);
+  cursor: pointer; font-size: 12px; padding: 4px 12px; border-radius: var(--pill); max-width: 100%; min-width: 0; text-align: center; overflow-wrap: anywhere;
   border: 1px solid var(--line); background: #fff; color: var(--ink);
 }
 .type-option:hover { border-color: #d5dbe6; background: #f5f7fb; }
@@ -135,8 +137,8 @@ main { padding: 0 16px; }
 .look-stage { display: grid; grid-template-columns: minmax(0, 1fr) 68px; gap: 10px; margin-top: 10px; align-items: start; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .cta { margin-top: 16px; }
-.result-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
-.result-row .btn { min-width: 0; padding: 6px 12px; white-space: normal; text-align: center; line-height: 1.25; }
+.result-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.result-row .btn { padding: 8px 12px; }
 
 /* The picked pieces, stacked beside the mannequin. */
 .picked { list-style: none; margin: 0; padding: 6px 6px 0 0; display: flex; flex-direction: column; gap: 10px; }
@@ -241,7 +243,7 @@ main { padding: 0 16px; }
 /* ---- Filters: All · Top · Bottom … ---- */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
 .chip {
-  cursor: pointer; font-size: 12px; padding: 4px 12px;
+  cursor: pointer; font-size: 12px; padding: 4px 12px; max-width: 100%; min-width: 0; text-align: center; overflow-wrap: anywhere;
   border: 1px solid var(--line); border-radius: var(--pill); background: #fff; color: var(--ink);
   transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
 }
@@ -317,8 +319,12 @@ main { padding: 0 16px; }
 }
 
 /* ---- Try a Different Look (D36): the sheet, the suggestion, Before / After ---- */
-.different, .compare { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: flex; flex-direction: column; gap: 10px; }
-.compare { margin-top: 14px; }
+.different { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: flex; flex-direction: column; gap: 10px; }
+/* The sheet is laid over the mannequin (not opened below it), so nothing needs scrolling to. */
+.look-stage-wrap { position: relative; }
+.different.overlay { position: absolute; top: 0; left: 0; right: 0; min-height: 100%; z-index: 6; margin: 0; padding: 14px; gap: 8px; background: rgba(255, 255, 255, 0.94); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 8px 28px -14px rgba(60, 80, 120, 0.4); }
+/* A short comment above the result buttons. */
+.explain { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
 .dl-title { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .dl-label { margin-top: 6px; }
 .keep-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -328,17 +334,16 @@ main { padding: 0 16px; }
 .keep-piece[aria-pressed='false'] .dl-img { opacity: 0.55; }
 .keep-state { color: var(--muted); }
 .dl-img { width: 100%; height: 56px; object-fit: contain; display: block; border-radius: 6px; }
-.dl-note { width: 100%; resize: vertical; font: inherit; font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; color: var(--ink); }
+.dl-note { width: 100%; resize: none; font: inherit; font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; color: var(--ink); }
 .dl-note:focus { outline: none; border-color: var(--accent-strong); }
 .dl-error { color: var(--danger); }
 .dl-conflict { padding: 10px 12px; background: var(--cream); border-radius: var(--radius); }
 .dl-hint { margin-top: -4px; }
-.dl-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 4px; }
+.dl-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 8px; margin-top: 4px; }
+.dl-actions .btn { padding: 8px 12px; }
 .dl-cancel { align-self: center; }
 .dl-working { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 0 8px; }
-.cmp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.cmp-fig { margin: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.cmp-img { width: 100%; aspect-ratio: 2 / 3; object-fit: contain; border-radius: var(--radius); background: #fff; border: 1px solid var(--line); }
-.cmp-title { margin: 4px 0 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.cmp-title { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .cmp-summary { font-size: 14px; line-height: 1.45; }
 .cmp-feedback { margin-top: 2px; }
+#pickers { scroll-margin-top: 56px; } /* land below the sticky header when "Pick pieces myself" scrolls here */

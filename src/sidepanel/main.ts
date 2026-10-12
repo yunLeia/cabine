@@ -141,6 +141,7 @@ const actions: Actions = {
     };
     void trackPanel('different_look_opened', { pieces: worn.length, again: !!before });
     render();
+    window.scrollTo({ top: 0 }); // the sheet is over the mannequin, at the top (instant: a smooth scroll is cancelled by the redraw)
   },
 
   closeDifferent() {
@@ -218,13 +219,9 @@ const actions: Actions = {
     }
     void trackPanel('different_look_planned', { seconds: (Date.now() - started) / 1000, vibes: d.vibes, kept: d.keep.length, candidates: candidates.length });
 
-    // Stage 2: render the chosen garments. The look before is kept for Before / After.
+    // Stage 2: render the chosen garments. The look you had is kept in case it can't be made.
     const previousOutfit = { ...state.outfit };
     const previousKey = state.lookKey;
-    const before = previousKey ? await getSavedRender(previousKey) : undefined;
-    if (stale()) return;
-    if (d.previous?.imageUrl) URL.revokeObjectURL(d.previous.imageUrl);
-    d.previous = { key: previousKey ?? '', outfit: previousOutfit, imageUrl: before ? URL.createObjectURL(before) : undefined };
     d.plan = plan;
     d.feedback = undefined;
     d.step = 'making';
@@ -261,17 +258,12 @@ const actions: Actions = {
     render();
   },
 
+  // "Pick pieces myself": close the sheet and take them to their clothes below.
   pickMyself() {
     endDifferent();
-    actions.tryAnother();
-  },
-
-  tryAnother() {
-    // Back to the empty mannequin; the chosen pieces stay in their boxes.
-    endDifferent();
-    state.cleared = true;
-    void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
     render();
+    void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
+    document.getElementById('pickers')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   async toggleSave() {
@@ -629,8 +621,6 @@ function render(): void {
 let differentRun = 0;
 function endDifferent(): void {
   differentRun++;
-  const url = state.different?.previous?.imageUrl;
-  if (url) URL.revokeObjectURL(url);
   state.different = null;
 }
 

@@ -17,6 +17,7 @@ export const VIBES = [
 export interface LookPlan {
   title: string; // "A more casual take"
   reason: string; // one short sentence on why it works
+  labels: Record<string, string>; // piece id → plain words ("black jacket"), for describing what changed
   outfit: Outfit; // the whole new look
   kept: string[];
   changes: { category: Category; from?: string; to?: string; why?: string }[]; // `to` missing: taken off
@@ -98,26 +99,30 @@ export function usablePlan(plan: LookPlan, byId: Map<string, Garment>): boolean 
   return Object.keys(pruneOutfit(plan.outfit, byId)).length === ids.length && plan.kept.every((id) => ids.includes(id));
 }
 
-// What changed, in a sentence or two, written from the facts (the stylist's own
-// description of changes was once wrong about what stayed), e.g. "Swapped your
-// black trousers for blue straight jeans and added white sneakers. Your brown
-// leather jacket stays." The stylist adds only a short reason after it.
-export function describeChanges(plan: LookPlan, nameOf: (id: string) => string | undefined): string {
-  // "Brown leather jacket" reads as "your brown leather jacket"; names in caps stay as they are.
-  const plain = (id?: string) => {
-    const n = id ? nameOf(id) : undefined;
-    return n && n.length > 1 && n[1] === n[1].toLowerCase() ? n[0].toLowerCase() + n.slice(1) : n;
-  };
+// What changed, in a sentence or two, written from the facts with plain words for the
+// pieces ("black jacket", never a store's product name, which is long, shouty and can
+// repeat across pieces), e.g. "Swapped your olive jacket for a black jacket and added
+// white sneakers. Your white shorts stay." The stylist adds only a short reason after it.
+// `fallback` names a piece the stylist gave no words for (its kind, say "top").
+export function describeChanges(plan: LookPlan, fallback: (id: string) => string | undefined): string {
+  const label = (id?: string) => (id ? plan.labels[id] ?? fallback(id) : undefined);
+  const plural = (l: string) => /[^s]s$/.test(l); // sneakers, jeans, shorts: no "a"
+  const a = (l: string) => (plural(l) ? l : `${/^[aeiou]/i.test(l) ? 'an' : 'a'} ${l}`);
   const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0]);
+
+  const stays = [...new Set(plan.kept.flatMap((id) => (label(id) ? [label(id)!] : [])))];
+  // A swapped-away piece that reads the same as one that stays (a duplicate): "your other olive jacket".
+  const yours = (id?: string) => (label(id) ? `your ${stays.includes(label(id)!) ? 'other ' : ''}${label(id)}` : undefined);
+
   const did: string[] = [];
-  const swaps = plan.changes.filter((c) => c.from && c.to).flatMap((c) => (plain(c.from) && plain(c.to) ? [`your ${plain(c.from)} for ${plain(c.to)}`] : []));
+  const swaps = plan.changes.filter((c) => c.from && c.to && yours(c.from) && label(c.to)).map((c) => `${yours(c.from)} for ${a(label(c.to)!)}`);
   if (swaps.length) did.push(`swapped ${list(swaps)}`);
-  const adds = plan.changes.filter((c) => !c.from && c.to).flatMap((c) => (plain(c.to) ? [plain(c.to)!] : []));
+  const adds = plan.changes.filter((c) => !c.from && c.to && label(c.to)).map((c) => a(label(c.to)!));
   if (adds.length) did.push(`added ${list(adds)}`);
-  const offs = plan.changes.filter((c) => c.from && !c.to).flatMap((c) => (plain(c.from) ? [`your ${plain(c.from)}`] : []));
+  const offs = plan.changes.filter((c) => c.from && !c.to && yours(c.from)).map((c) => yours(c.from)!);
   if (offs.length) did.push(`took off ${list(offs)}`);
-  const stays = plan.kept.flatMap((id) => (plain(id) ? [plain(id)!] : []));
+
   const first = did.length ? `${list(did)}.`.replace(/^./, (c) => c.toUpperCase()) : '';
-  const second = stays.length ? `Your ${list(stays)} ${stays.length > 1 ? 'stay' : 'stays'}.` : '';
+  const second = stays.length ? `Your ${list(stays)} ${stays.length > 1 || plural(stays[0]) ? 'stay' : 'stays'}.` : '';
   return [first, second].filter(Boolean).join(' ') || 'A new combination from your closet.';
 }

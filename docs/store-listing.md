@@ -20,7 +20,7 @@ A draft. Edit freely; keep the claims in line with `server/public/privacy.html`.
 >
 > **See them together.** Pick a store piece and a few of your own. Cabine dresses a mannequin in the whole look, so you can judge it before you buy.
 >
-> **Try a Different Look.** Not feeling the first result? Keep the piece you like and ask for another direction, more casual, more polished, more like you. Cabine's stylist picks new combinations from clothes you own and shows the new look next to the old one, with a short explanation of what changed.
+> **Try a Different Look.** Not feeling the first result? Keep the piece you like and ask for another direction, more casual, more polished, more like you. Cabine's stylist picks new combinations from clothes you own and shows the new look with a short note on what changed.
 >
 > **Save the looks you like** and come back to them. Open the original product page in one tap.
 >

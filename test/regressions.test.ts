@@ -232,16 +232,24 @@ test('different look: a plan that no longer fits the closet is not shown', () =>
   assert.equal(usablePlan(plan, byId), false, 'jeans changed kind meanwhile, so the plan about them is stale');
 });
 
-test('different look: what changed is written from the facts', () => {
-  const names: Record<string, string> = { jacket: 'Brown leather jacket', trousers: 'Black trousers', jeans: 'Blue straight jeans', sneakers: 'White sneakers', tee: 'White tee', top: 'ZARA TOP' };
-  const nameOf = (id: string) => names[id];
-  const plan = (kept: string[], changes: { category: 'top' | 'bottom' | 'shoes'; from?: string; to?: string }[]) => ({ title: '', reason: '', outfit: {}, kept, changes });
+test('different look: what changed is written from the facts, in plain words', () => {
+  const plan = (kept: string[], changes: { category: 'top' | 'bottom' | 'shoes' | 'outerwear'; from?: string; to?: string }[], labels: Record<string, string>) =>
+    ({ title: '', reason: '', labels, outfit: {}, kept, changes });
+  const kind = (id: string) => ({ x: 'top' }[id]);
+  const labels = { jacket: 'brown jacket', trousers: 'black trousers', jeans: 'blue jeans', sneakers: 'white sneakers', coat: 'olive jacket', boucle: 'black bouclé jacket', tee: 'white tee', shorts: 'white shorts' };
+
   assert.equal(
-    describeChanges(plan(['jacket'], [{ category: 'bottom', from: 'trousers', to: 'jeans' }, { category: 'shoes', to: 'sneakers' }]), nameOf),
-    'Swapped your black trousers for blue straight jeans and added white sneakers. Your brown leather jacket stays.',
+    describeChanges(plan(['jacket'], [{ category: 'bottom', from: 'trousers', to: 'jeans' }, { category: 'shoes', to: 'sneakers' }], labels), kind),
+    'Swapped your black trousers for blue jeans and added white sneakers. Your brown jacket stays.',
+    'plural pieces get no "a"',
   );
-  assert.equal(describeChanges(plan(['jacket', 'tee'], [{ category: 'bottom', from: 'trousers', to: 'jeans' }]), nameOf), 'Swapped your black trousers for blue straight jeans. Your brown leather jacket and white tee stay.');
-  assert.equal(describeChanges(plan(['top'], [{ category: 'shoes', from: 'sneakers' }]), nameOf), 'Took off your white sneakers. Your ZARA TOP stays.', 'a name in capitals keeps its capitals');
-  assert.equal(describeChanges(plan([], []), nameOf), 'A new combination from your closet.');
-  assert.equal(describeChanges(plan(['gone'], [{ category: 'bottom', from: 'x', to: 'y' }]), nameOf), 'A new combination from your closet.', 'a piece we have no name for is left out, never "undefined"');
+  assert.equal(
+    describeChanges(plan(['shorts', 'tee'], [{ category: 'outerwear', from: 'coat', to: 'boucle' }], labels), kind),
+    'Swapped your olive jacket for a black bouclé jacket. Your white shorts and white tee stay.',
+    'singular pieces get "a" / "an"; two that stay use "stay"',
+  );
+  assert.equal(describeChanges(plan(['shorts'], [{ category: 'shoes', from: 'sneakers' }], labels), kind), 'Took off your white sneakers. Your white shorts stay.');
+  assert.equal(describeChanges(plan(['tee'], [{ category: 'top', from: 'coat', to: 'x' }], { tee: 'olive jacket', coat: 'olive jacket' }), kind), 'Swapped your other olive jacket for a top. Your olive jacket stays.', 'a duplicate that was swapped away is "your other …"; a piece with no words falls back to its kind');
+  assert.equal(describeChanges(plan([], [], {}), kind), 'A new combination from your closet.');
+  assert.ok(!/undefined/.test(describeChanges(plan(['gone'], [{ category: 'bottom', from: 'gone2', to: 'gone3' }], {}), kind)), 'never prints "undefined"');
 });
