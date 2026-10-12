@@ -790,6 +790,24 @@ const tests: [string, () => Promise<void>][] = [
     assert.match(down.body.error, /Something went wrong/);
   }],
 
+  ['different look: a repeat is answered with a pointer to pieces that have not been used yet', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const feedback: (string | undefined)[] = [];
+    deps.planner = { id: 'fake', plan: async (_i, f) => (feedback.push(f), { understood: 'x', direction: 'x', pieces: [{ id: feedback.length === 1 ? 'jeans' : 'cream', why: '' }] }) };
+    const r = await call(deps, {
+      keep: [piece('top1', 'top')],
+      current: [piece('pants', 'bottom')],
+      candidates: [piece('jeans', 'bottom'), piece('cream', 'bottom')],
+      vibes: [],
+      avoid: [['top1', 'jeans']],
+    }, 'secret', 'plan-look');
+    assert.equal(r.status, 200, 'the second try uses the unseen piece');
+    assert.match(feedback[1]!, /already shown/);
+    assert.match(feedback[1]!, /cream/, 'it names a piece that has not been in any look');
+    assert.ok(!/jeans/.test(feedback[1]!.split('if you can:')[1]), 'and not the one already used');
+  }],
+
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
     const { deps, recorded } = setup();
     const r = await call(deps, {

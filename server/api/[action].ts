@@ -743,6 +743,12 @@ export function parsePlanRequest(body: Record<string, unknown>): PlanInput {
   return { keep, current, candidates, vibes: vibes as string[], note: note || undefined, favorites: ids(body.favorites, 12), avoid };
 }
 
+// Candidates that haven't appeared in any look shown so far (or the current one).
+const unseenCandidates = (input: PlanInput): string[] => {
+  const seen = new Set([...input.avoid.flat(), ...input.keep.map((p) => p.id), ...input.current.map((p) => p.id)]);
+  return input.candidates.filter((c) => !seen.has(c.id)).map((c) => c.id);
+};
+
 export class PlanProblem extends Error {} // the model's answer didn't hold up (or never came); the message goes back to it
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
@@ -775,7 +781,10 @@ export function finalizePlan(input: PlanInput, raw: RawPlan): LookPlan {
   if (before.includes('shoes') && !kinds.includes('shoes')) throw new PlanProblem('The current look has shoes, so the new look needs shoes too.');
   const ids = finalPieces.map((p) => p.id);
   if (sameSet(ids, [...input.keep, ...input.current].map((p) => p.id))) throw new PlanProblem('That is the same look as the current one. It must be a different combination.');
-  if (input.avoid.some((a) => sameSet(ids, a))) throw new PlanProblem('That combination was already shown. Suggest a different one.');
+  if (input.avoid.some((a) => sameSet(ids, a))) {
+    const fresh = unseenCandidates(input);
+    throw new PlanProblem(`That combination was already shown. Change at least one piece${fresh.length ? `, and use a piece that hasn't been in any look yet if you can: ${fresh.join(', ')}` : ''}.`);
+  }
 
   const currentByKind = new Map(input.current.map((p) => [p.category, p.id]));
   const changes: LookPlan['changes'] = chosen.map(({ piece, why }) => ({ category: piece.category, from: currentByKind.get(piece.category), to: piece.id, why }));
@@ -865,7 +874,11 @@ function plannerMessages(input: PlanInput, feedback?: string) {
       `Direction wanted: ${direction}.\n` +
       (input.note ? `The shopper's note: "${input.note}"\n` : '') +
       (input.favorites.length ? `Favorites (candidate ids): ${input.favorites.join(', ')}\n` : '') +
-      (input.avoid.length ? `Already shown, do not repeat: ${input.avoid.map((a) => `[${a.join(', ')}]`).join(' ')}\n` : '') +
+      (input.avoid.length
+        ? `Already shown, do not repeat: ${input.avoid.map((a) => `[${a.join(', ')}]`).join(' ')}\n` +
+          `Change at least one piece compared with every look above. If the note asks for one thing (say denim) and that piece was already used, keep the spirit but vary another piece.\n` +
+          (unseenCandidates(input).length ? `Candidates not yet in any look (prefer at least one): ${unseenCandidates(input).join(', ')}\n` : '')
+        : '') +
       (feedback ? `Your last answer was rejected: ${feedback}\n` : '') +
       'Answer with every piece to wear besides the KEPT ones (ids from CANDIDATES or CURRENT), your "understood" sentence, the "direction" phrase, and a "why" for each piece.',
   });
