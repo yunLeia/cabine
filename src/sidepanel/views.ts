@@ -1,5 +1,6 @@
 import { CATEGORIES, CATEGORY_LABEL, isSaved, type Category, type Draft, type Garment, type Outfit, type SavedLook } from '../shared/types';
 import { productName } from '../shared/infer';
+import { VIBES, nothingToTry, pickCandidates, type LookPlan } from '../shared/different';
 import { h } from './dom';
 import { icon } from './icons';
 import { account, authAvailable } from './auth';
@@ -26,6 +27,18 @@ export interface RenderState {
   error?: string;
 }
 
+// "Try a Different Look" (D36): ask → planning → confirm → making → compare.
+export interface DifferentState {
+  step: 'ask' | 'planning' | 'confirm' | 'making' | 'compare';
+  keep: string[]; // pieces to keep, by garment id
+  vibes: string[];
+  note: string;
+  plan?: LookPlan; // what the stylist suggests, shown before anything is made
+  tried: string[][]; // combinations already suggested, so "Try one more" is new
+  previous?: { key: string; outfit: Outfit; imageUrl?: string }; // the look before, for Before / After
+  error?: string;
+}
+
 export interface ViewState {
   garments: Garment[];
   byId: Map<string, Garment>;
@@ -44,6 +57,7 @@ export interface ViewState {
   uploadOpen: boolean; // the Upload button's "phone or this computer?" menu
   savedEdit: boolean; // Saved Looks in edit mode (delete buttons showing)
   accountOpen: boolean; // the account menu in the header
+  different: DifferentState | null; // "Try a Different Look", when it's open
 }
 
 export interface Actions {
@@ -54,6 +68,17 @@ export interface Actions {
   setView(v: View): void;
   seeTogether(): void;
   tryAnother(): void;
+  openDifferent(): void;
+  closeDifferent(): void;
+  toggleKeep(id: string): void;
+  toggleVibe(key: string): void;
+  setNote(text: string): void;
+  planDifferent(): void;
+  makeDifferent(): void;
+  tryOneMore(): void;
+  changeSomethingElse(): void;
+  acceptDifferent(): void;
+  pickMyself(): void;
   toggleSave(): void;
   openSavedLook(l: SavedLook): void;
   openOriginal(g: Garment, from: 'result' | 'menu'): void;
@@ -281,6 +306,8 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const rendered = shown && s.render?.status === 'done';
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
+  const step = s.different?.step;
+  const sheet = step === 'ask' || step === 'planning' || step === 'confirm';
   return h(
     'div',
     { class: 'main-page' },
@@ -289,16 +316,143 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
       { class: 'look', 'aria-label': 'Your Look' },
       h('h2', { class: 'label look-title' }, 'Your Look'),
       h('div', { class: 'look-stage' }, lookFrame(s, a, worn), picked(s, a, worn)),
-      rendered
-        ? h(
-            'div',
-            { class: 'result-row' },
-            h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, icon(saved ? 'heartFilled' : 'heart'), saved ? 'Saved' : 'Save this look'),
-            h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryAnother }, icon('refresh'), 'Try another'),
-          )
-        : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
+      sheet
+        ? differentSheet(s, a, worn)
+        : rendered
+          ? h(
+              'div',
+              { class: 'result-wrap' },
+              h(
+                'div',
+                { class: 'result-row' },
+                h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, icon(saved ? 'heartFilled' : 'heart'), saved ? 'Saved' : 'Save this look'),
+                h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.openDifferent }, icon('refresh'), 'Try a Different Look'),
+              ),
+              s.different?.step === 'compare' && compareCard(s, a),
+            )
+          : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
     ),
     lookPickers(s, a),
+  );
+}
+
+// ---- Try a Different Look ---------------------------------------------------------
+// The shopper keeps the piece(s) they choose and asks for another direction. The
+// stylist's answer is shown as a sentence and a list of swaps before anything is
+// made, then the new look comes back next to the old one with what changed.
+
+const thumb = (g: Garment | undefined, cls = 'dl-img') => (g ? img(thumbSrc(g), cls, name(g)) : h('span', { class: `${cls} thumb-empty` }));
+
+function differentSheet(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
+  const d = s.different!;
+  const head = [
+    h('h3', { class: 'dl-title' }, 'Try a Different Look'),
+    h('p', { class: 'muted small' }, 'Keep the piece. Explore another way to wear it.'),
+  ];
+  if (d.step === 'planning') {
+    return h(
+      'section',
+      { class: 'different', 'aria-label': 'Try a Different Look' },
+      ...head,
+      h('div', { class: 'dl-working', role: 'status' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Looking through your closet…'), h('p', { class: 'muted small' }, 'A few seconds')),
+    );
+  }
+  if (d.step === 'confirm' && d.plan) return confirmStep(s, a, d, d.plan, head);
+
+  const candidates = pickCandidates(s.garments, worn, d.keep, []);
+  const blocked = nothingToTry(worn, d.keep, candidates);
+  return h(
+    'section',
+    { class: 'different', 'aria-label': 'Try a Different Look' },
+    ...head,
+    h('p', { class: 'label dl-label' }, 'Keep'),
+    h(
+      'div',
+      { class: 'keep-row' },
+      ...worn.map((g) => {
+        const kept = d.keep.includes(g.id);
+        return h(
+          'button',
+          { type: 'button', class: 'keep-piece', 'aria-pressed': kept, title: name(g), onclick: () => a.toggleKeep(g.id) },
+          thumb(g),
+          h('span', { class: 'keep-state small' }, kept ? 'Keep' : 'Change'),
+        );
+      }),
+    ),
+    h('p', { class: 'label dl-label' }, 'What do you want to change?'),
+    h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
+    h('textarea', { class: 'dl-note', rows: 2, maxlength: 200, placeholder: 'Tell Cabine what feels off… e.g. “too formal”, “try with denim”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
+    d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
+    blocked && h('p', { class: 'muted small dl-hint' }, blocked),
+    h(
+      'div',
+      { class: 'dl-actions' },
+      h('button', { type: 'button', class: 'btn btn-primary', disabled: !!blocked, onclick: a.planDifferent }, 'Show me', icon('arrow')),
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.pickMyself }, 'Pick pieces myself'),
+    ),
+    h('button', { type: 'button', class: 'text-button small dl-cancel', onclick: a.closeDifferent }, 'Cancel'),
+  );
+}
+
+function confirmStep(s: ViewState, a: Actions, d: DifferentState, plan: LookPlan, head: HTMLElement[]): HTMLElement {
+  const piece = (id?: string) => (id ? s.byId.get(id) : undefined);
+  return h(
+    'section',
+    { class: 'different', 'aria-label': 'Try a Different Look' },
+    ...head,
+    h('p', { class: 'dl-understood' }, plan.understood),
+    h('div', { class: 'dl-changes' }, ...changeRows(plan, piece)),
+    d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
+    h(
+      'div',
+      { class: 'dl-actions' },
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: a.makeDifferent }, 'Make this look', icon('arrow')),
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.changeSomethingElse }, 'Change something'),
+    ),
+  );
+}
+
+// "Kept" row, then one row per swap: the old piece → the new one, and why.
+function changeRows(plan: LookPlan, piece: (id?: string) => Garment | undefined): HTMLElement[] {
+  const rows: HTMLElement[] = [];
+  const kept = plan.kept.map(piece).filter((g): g is Garment => !!g);
+  if (kept.length) {
+    rows.push(h('div', { class: 'dl-row' }, h('span', { class: 'dl-tag' }, 'Keeping'), h('span', { class: 'dl-pieces' }, ...kept.map((g) => thumb(g, 'dl-img small'))), h('span', { class: 'dl-text small' }, kept.map(name).join(', '))));
+  }
+  for (const c of plan.changes) {
+    const from = piece(c.from);
+    const to = piece(c.to);
+    rows.push(
+      h(
+        'div',
+        { class: 'dl-row' },
+        h('span', { class: 'dl-tag' }, to ? (from ? 'Swapping' : 'Adding') : 'Taking off'),
+        h('span', { class: 'dl-pieces' }, from && thumb(from, 'dl-img small'), from && to && h('span', { class: 'dl-arrow', 'aria-hidden': 'true' }, '→'), to && thumb(to, 'dl-img small')),
+        h('span', { class: 'dl-text small' }, to ? `${from ? `${name(from)} → ` : ''}${name(to)}${c.why ? `: ${c.why}` : ''}` : from ? name(from) : ''),
+      ),
+    );
+  }
+  return rows;
+}
+
+function compareCard(s: ViewState, a: Actions): HTMLElement | null {
+  const d = s.different;
+  if (!d?.plan || !s.render?.imageUrl) return null;
+  const plan = d.plan;
+  const figure = (label: string, src?: string) => h('figure', { class: 'cmp-fig' }, src ? h('img', { class: 'cmp-img', src, alt: `${label} look` }) : h('div', { class: 'cmp-img thumb-empty' }), h('figcaption', { class: 'label' }, label));
+  return h(
+    'section',
+    { class: 'compare', 'aria-label': 'Before and after' },
+    h('div', { class: 'cmp-pair' }, figure('Before', d.previous?.imageUrl), figure('After', s.render.imageUrl)),
+    h('p', { class: 'label dl-label' }, 'What changed'),
+    h('div', { class: 'dl-changes' }, ...changeRows(plan, (id) => (id ? s.byId.get(id) : undefined)), h('div', { class: 'dl-row' }, h('span', { class: 'dl-tag' }, 'Direction'), h('span', { class: 'dl-text small' }, plan.direction))),
+    h(
+      'div',
+      { class: 'dl-actions' },
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: a.acceptDifferent }, icon('check'), 'This is better'),
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.tryOneMore }, icon('refresh'), 'Try one more'),
+    ),
+    h('button', { type: 'button', class: 'text-button small dl-cancel', onclick: a.changeSomethingElse }, 'Change something else'),
   );
 }
 

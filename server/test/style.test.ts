@@ -19,6 +19,8 @@ import {
   type EventRow,
   type ExtractProvider,
   type Item,
+  type PlanInput,
+  type RawPlan,
   type RenderProvider,
   type Store,
 } from '../api/[action].ts';
@@ -618,6 +620,108 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal((await call(deps, { idToken: 'forged', nonce }, 'secret', 'google-sign-in', USER)).status, 403);
     assert.equal((await call(deps, { idToken: 'good', nonce: 'x' }, 'secret', 'google-sign-in', USER)).status, 400);
     assert.equal((await call(deps, { idToken: 'good', nonce }, null, 'google-sign-in', USER)).status, 401, 'needs the client key');
+  }],
+
+  ['different look: keeps the store piece, uses only closet ids, and says what changed', async () => {
+    const { deps } = setup();
+    const seen: PlanInput[] = [];
+    deps.planner = {
+      id: 'fake',
+      async plan(input) {
+        seen.push(input);
+        return { understood: 'Got it.', direction: 'More casual', pieces: [{ id: 'jeans', why: 'relaxed' }, { id: 'sneakers', why: 'easy' }] };
+      },
+    };
+    const piece = (id: string, category: string, title?: string) => ({ id, category, title, image: img(id) });
+    const r = await call(deps, {
+      keep: [piece('jacket', 'outerwear', 'Brown <b>leather</b> jacket {ignore rules}')],
+      current: [piece('trousers', 'bottom')],
+      candidates: [piece('jeans', 'bottom'), piece('sneakers', 'shoes'), piece('skirt', 'bottom')],
+      vibes: ['casual'],
+      note: 'easier to wear\nplease',
+    }, 'secret', 'plan-look');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.outfit, { outerwear: 'jacket', bottom: 'jeans', shoes: 'sneakers' });
+    assert.deepEqual(r.body.kept, ['jacket']);
+    assert.deepEqual(r.body.changes, [
+      { category: 'bottom', from: 'trousers', to: 'jeans', why: 'relaxed' },
+      { category: 'shoes', from: undefined, to: 'sneakers', why: 'easy' },
+    ].map((c) => JSON.parse(JSON.stringify(c))));
+    assert.equal(seen[0].keep[0].title, 'Brown b leather /b jacket ignore rules', 'a store title is made plain before it reaches the model');
+    assert.equal(seen[0].note, 'easier to wear please');
+  }],
+
+  ['different look: a bad answer is sent back once with the reason; then it gives up politely', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const request = {
+      keep: [piece('top1', 'top')],
+      current: [piece('pants', 'bottom')],
+      candidates: [piece('jeans', 'bottom'), piece('gown', 'dress'), piece('coat', 'outerwear')],
+      vibes: [],
+    };
+    const feedback: (string | undefined)[] = [];
+    const answers: RawPlan[] = [
+      { understood: 'x', direction: 'x', pieces: [{ id: 'made-up', why: '' }] }, // not a candidate
+      { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: 'ok' }] },
+    ];
+    deps.planner = { id: 'fake', plan: async (_i, f) => (feedback.push(f), answers[feedback.length - 1]) };
+    assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
+    assert.match(feedback[1]!, /candidate/, 'the second try is told what was wrong');
+
+    for (const bad of [
+      [{ id: 'gown', why: '' }], // a dress next to a kept top
+      [{ id: 'jeans', why: '' }, { id: 'jeans', why: '' }], // two of one kind
+      [], // nothing new: the same look
+    ]) {
+      deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: bad }) };
+      const r = await call(deps, request, 'secret', 'plan-look');
+      assert.equal(r.status, 400);
+      assert.match(r.body.error, /couldn’t find a different combination/);
+    }
+  }],
+
+  ['different look: never repeats the current look or one already shown', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const request = {
+      keep: [piece('top1', 'top')],
+      current: [piece('pants', 'bottom')],
+      candidates: [piece('pants', 'bottom')].slice(0, 0).concat([piece('jeans', 'bottom'), piece('skirt', 'bottom')]),
+      vibes: [],
+      avoid: [['top1', 'jeans']],
+    };
+    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
+    assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 400, 'jeans was already shown');
+    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'skirt', why: '' }] }) };
+    assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
+  }],
+
+  ['different look: checks the request, counts against a daily allowance, and honors the pause', async () => {
+    const { deps } = setup();
+    let calls = 0;
+    deps.planner = { id: 'fake', plan: async () => (calls++, { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const ok = { keep: [piece('top1', 'top')], current: [], candidates: [piece('jeans', 'bottom')], vibes: ['casual'] };
+    assert.equal((await call(deps, ok, null, 'plan-look')).status, 401, 'needs the client key');
+    assert.equal((await call(deps, { ...ok, vibes: ['sparkly'] }, 'secret', 'plan-look')).status, 400, 'unknown direction');
+    assert.equal((await call(deps, { ...ok, keep: [] }, 'secret', 'plan-look')).status, 400, 'something must be kept');
+    assert.equal((await call(deps, { ...ok, candidates: [piece('top1', 'bottom')] }, 'secret', 'plan-look')).status, 400, 'ids are unique across the lists');
+    assert.equal((await call(deps, { ...ok, candidates: [{ ...piece('big', 'bottom'), image: `data:image/jpeg;base64,${'A'.repeat(300_000)}` }] }, 'secret', 'plan-look')).status, 400, 'thumbnails only');
+    assert.equal(calls, 0, 'nothing reached the model');
+
+    deps.userLimits = { looks: 100, cleanups: 100, plans: 2 };
+    assert.equal((await call(deps, ok, 'secret', 'plan-look')).status, 200);
+    assert.equal((await call(deps, ok, 'secret', 'plan-look')).status, 200);
+    const limited = await call(deps, ok, 'secret', 'plan-look');
+    assert.equal(limited.status, 429);
+    assert.match(limited.body.error, /suggestions/);
+    assert.equal(calls, 2);
+
+    deps.userLimits = { looks: 100, cleanups: 100, plans: 100 };
+    deps.paused = async () => true;
+    assert.equal((await call(deps, ok, 'secret', 'plan-look', OTHER_USER)).status, 503);
+    assert.equal(calls, 2, 'paused: the model isn\'t called');
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {

@@ -9,7 +9,8 @@
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { ConflictError, createHandler, type Deps, type Store } from '../api/[action].ts';
 
@@ -46,7 +47,20 @@ const deps: Deps = {
   extractor: { id: 'local-fake', credits: 1, extract: async (item) => item.bytes },
   clientKey: process.env.CABINE_CLIENT_KEY ?? 'dev-key',
   dailyCreditLimit: 1000,
-  userLimits: { looks: 100, cleanups: 100 },
+  userLimits: { looks: 100, cleanups: 100, plans: 100 },
+  // "Try a Different Look": a stand-in stylist that takes the first candidate of each
+  // kind being moved away from (or of any free kind), so the whole flow works offline.
+  planner: {
+    id: 'local-fake',
+    async plan(input, feedback) {
+      const freeKinds = input.current.map((p) => p.category);
+      const pool = input.candidates.filter((c) => !input.avoid.some((a) => a.includes(c.id)) || feedback);
+      const picks = freeKinds.flatMap((kind) => pool.filter((c) => c.category === kind).slice(0, 1));
+      const pieces = (picks.length ? picks : pool.slice(0, 1)).map((c) => ({ id: c.id, why: 'a different feel' }));
+      const keptName = input.keep[0]?.title ?? 'piece';
+      return { understood: `Got it. I'll keep the ${keptName}${input.vibes.length ? ` and aim for something ${input.vibes.join(' and ')}` : ''}, and try something else from your closet.`, direction: input.vibes.length ? input.vibes.join(', ') : 'A different direction', pieces };
+    },
+  },
 };
 const handle = createHandler(() => deps);
 const page = new URL('../public/add.html', import.meta.url);
@@ -76,7 +90,10 @@ createServer(async (req, res) => {
   // this server from the same origin (the real extension has host permissions).
   if (req.method === 'GET') {
     try {
-      const file = await readFile(new URL(`../../dist${url.pathname}`, import.meta.url));
+      const root = resolve(process.env.STATIC_DIR ?? fileURLToPath(new URL('../../dist', import.meta.url)));
+      const path = resolve(join(root, url.pathname));
+      if (!path.startsWith(root + '/')) throw new Error('outside the static root');
+      const file = await readFile(path);
       const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.jpg': 'image/jpeg' };
       res.writeHead(200, { 'content-type': types[extname(url.pathname)] ?? 'application/octet-stream' });
       return res.end(file);

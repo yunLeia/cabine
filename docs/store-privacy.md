@@ -25,7 +25,7 @@ Cabine lets you try store clothes against your own wardrobe. Save product images
 
 - **Personally identifiable information:** yes. The email address, only if the user signs in. It's held by Clerk.
 - **Authentication information:** yes. Sign-in session tokens are managed by Clerk.
-- **Website content:** yes. Product images and names the user chooses to save. When signed in, the product page address of pieces in My Closet is also kept.
+- **Website content:** yes. Product images and names the user chooses to save. When signed in, the product page address of pieces in My Closet is also kept. "Try a Different Look" sends small copies of clothing photos, with names and an optional note, to an AI model (Anthropic Claude, via Vercel AI Gateway) to suggest a combination; nothing is stored.
 - **User activity:** yes. Anonymous usage events: event names, counts, timings and the store's domain. No page addresses.
 - Everything else (health, financial, location, personal communications, web history): **no**.
 

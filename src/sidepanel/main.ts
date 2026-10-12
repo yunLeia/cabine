@@ -4,6 +4,7 @@ import '@fontsource-variable/inter';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, pruneRenderCache, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
+import { defaultKeep, favoriteIds, pickCandidates, usablePlan } from '../shared/different';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
@@ -12,8 +13,8 @@ import { startFlushing, trackPanel } from './analytics';
 import { deleteAccountData, requestSync, onSyncStatus } from './sync';
 import { account, interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
-import { RenderError, cleanUpPhoto, getSavedRender, lookKey, postJson, styleOutfit } from './render';
-import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, type Actions, type RenderState, type ViewState } from './views';
+import { RenderError, cleanUpPhoto, getSavedRender, lookKey, postJson, requestPlan, styleOutfit } from './render';
+import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, wornPieces, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
 // and only changes through storage writes + onChanged. The rest is UI state.
@@ -35,6 +36,7 @@ const state: ViewState = {
   uploadOpen: false,
   savedEdit: false,
   accountOpen: false,
+  different: null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -53,6 +55,7 @@ const actions: Actions = {
   },
 
   pick(g: Garment) {
+    endDifferent();
     state.menuFor = null;
     if (state.outfit[g.category] !== g.id) {
       void trackPanel(g.location === 'fittingRoom' ? 'fitting_room_item_selected' : 'closet_item_selected', { itemId: g.id, category: g.category, viaSlot: false });
@@ -64,10 +67,12 @@ const actions: Actions = {
   },
 
   takeOff(g: Garment) {
+    endDifferent();
     void setOutfit(removeFromOutfit(state.outfit, g.category));
   },
 
   setView(v) {
+    endDifferent();
     state.view = v;
     state.savedEdit = false;
     state.menuFor = null;
@@ -117,8 +122,139 @@ const actions: Actions = {
     }
   },
 
+  // ---- Try a Different Look (D36): keep some pieces, see another way to wear them ----
+
+  openDifferent() {
+    const worn = wornPieces(state);
+    endDifferent();
+    // The look you start from counts as already tried, so a suggestion never leads back to it.
+    state.different = { step: 'ask', keep: defaultKeep(worn), vibes: [], note: '', tried: [worn.map((g) => g.id)] };
+    void trackPanel('different_look_opened', { pieces: worn.length });
+    render();
+  },
+
+  closeDifferent() {
+    endDifferent();
+    render();
+  },
+
+  toggleKeep(id) {
+    const d = state.different;
+    if (!d) return;
+    d.keep = d.keep.includes(id) ? d.keep.filter((x) => x !== id) : [...d.keep, id];
+    render();
+  },
+
+  toggleVibe(key) {
+    const d = state.different;
+    if (!d) return;
+    d.vibes = d.vibes.includes(key) ? d.vibes.filter((x) => x !== key) : [...d.vibes, key];
+    render();
+  },
+
+  setNote(text) {
+    if (state.different) state.different.note = text; // no redraw: the box keeps focus while typing
+  },
+
+  // Ask the stylist. Nothing is made yet: its answer comes back as a sentence and a list of swaps to approve.
+  async planDifferent() {
+    const d = state.different;
+    if (!d) return;
+    const run = ++differentRun;
+    const worn = wornPieces(state);
+    const favorites = d.vibes.includes('like-me') ? favoriteIds(state.savedLooks, state.byId) : [];
+    const candidates = pickCandidates(state.garments, worn, d.keep, favorites);
+    d.step = 'planning';
+    d.error = undefined;
+    render();
+    const started = Date.now();
+    const stale = () => run !== differentRun || state.different !== d;
+    try {
+      const plan = await requestPlan({
+        keep: worn.filter((g) => d.keep.includes(g.id)),
+        current: worn.filter((g) => !d.keep.includes(g.id)),
+        candidates,
+        vibes: d.vibes,
+        note: d.note,
+        favorites,
+        avoid: d.tried,
+      });
+      if (stale()) return;
+      if (!usablePlan(plan, state.byId)) throw new RenderError('rejected', 'Your closet changed while Cabine was thinking. Please try again.');
+      d.plan = plan;
+      d.tried = [...d.tried, Object.values(plan.outfit).filter((id): id is string => !!id)].slice(-5);
+      d.step = 'confirm';
+      void trackPanel('different_look_planned', { seconds: (Date.now() - started) / 1000, vibes: d.vibes, kept: d.keep.length, candidates: candidates.length });
+    } catch (err) {
+      if (stale()) return;
+      if (!(err instanceof RenderError)) console.error('[cabine] plan failed', err);
+      d.step = 'ask';
+      d.plan = undefined;
+      d.error = err instanceof RenderError ? err.message : 'Something went wrong. Please try again.';
+      void trackPanel('different_look_failed', { code: err instanceof RenderError ? err.code : 'unexpected' });
+    }
+    render();
+  },
+
+  // The shopper approved the swaps: make the new look the usual way (it counts as a look).
+  async makeDifferent() {
+    const d = state.different;
+    const plan = d?.plan;
+    if (!d || !plan) return;
+    const run = ++differentRun;
+    const key = state.lookKey;
+    const before = key ? await getSavedRender(key) : undefined;
+    if (d.previous?.imageUrl) URL.revokeObjectURL(d.previous.imageUrl);
+    d.previous = { key: key ?? '', outfit: { ...state.outfit }, imageUrl: before ? URL.createObjectURL(before) : undefined };
+    d.step = 'making';
+    d.error = undefined;
+    void trackPanel('different_look_made', { vibes: d.vibes, swapped: plan.changes.length });
+    state.outfit = plan.outfit;
+    state.cleared = false;
+    state.lookKey = await lookKey(plan.outfit, state.byId);
+    void setOutfit(plan.outfit);
+    render();
+    await actions.seeTogether();
+    if (run !== differentRun || state.different !== d) return;
+    if (state.render?.key === state.lookKey && state.render.status === 'done') {
+      d.step = 'compare';
+    } else {
+      // It couldn't be made (a limit, offline): back to the suggestion, with the reason.
+      d.error = state.render?.error ?? 'Couldn’t make this look. Please try again.';
+      d.step = 'confirm';
+      setRender(null);
+      return;
+    }
+    render();
+  },
+
+  tryOneMore() {
+    void trackPanel('different_look_more', {});
+    void actions.planDifferent();
+  },
+
+  changeSomethingElse() {
+    const d = state.different;
+    if (!d) return;
+    d.step = 'ask';
+    d.error = undefined;
+    render();
+  },
+
+  acceptDifferent() {
+    void trackPanel('different_look_accepted', { vibes: state.different?.vibes ?? [] });
+    endDifferent();
+    render();
+  },
+
+  pickMyself() {
+    endDifferent();
+    actions.tryAnother();
+  },
+
   tryAnother() {
     // Back to the empty mannequin; the chosen pieces stay in their boxes.
+    endDifferent();
     state.cleared = true;
     void trackPanel('try_another_look', { pieces: chainOrder(state.outfit, state.byId).length });
     render();
@@ -135,6 +271,7 @@ const actions: Actions = {
   },
 
   openSavedLook(l) {
+    endDifferent();
     state.view = 'look';
     // A piece can change kind after the look was saved (a top edited to a dress),
     // so restore it as a valid look now, keep the saved copy in step, and say so.
@@ -471,6 +608,16 @@ function render(): void {
   // A ⋯ menu opens leftwards from its tile; on the first column, flip it so it isn't cut off.
   const menu = document.querySelector<HTMLElement>('.menu');
   if (menu && menu.getBoundingClientRect().left < 8) menu.classList.add('flip');
+}
+
+// "Try a Different Look" is one flow at a time. A newer request, or leaving it,
+// makes an older answer stale.
+let differentRun = 0;
+function endDifferent(): void {
+  differentRun++;
+  const url = state.different?.previous?.imageUrl;
+  if (url) URL.revokeObjectURL(url);
+  state.different = null;
 }
 
 let knownIds: Set<string> | undefined;

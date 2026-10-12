@@ -671,3 +671,25 @@ Found during the pre-submission check:
 - **Same email, same account:** a Google sign-in with an email that already signed up by email gets that account, since Google verified the email.
 - **Config:** `GOOGLE_CLIENT_ID` (defaults to the dev Google client). The production Clerk instance will need its own Google client, set here too.
 - **Tests:** tokens signed with a local key cover each refusal (wrong signer, audience, issuer, nonce, unverified email, too old). The route test covers ticket / 403 / 400 / 401.
+
+## D36. Try a Different Look
+
+- **What:** under a finished look, "Try a Different Look" replaces "Try another" (which stays as "Pick pieces myself" inside it). Keep the piece, explore another way to wear it, using only clothes you own.
+- **Flow:**
+  1. **Ask.** Pieces in the look are toggles, Keep or Change (default: the store pieces are kept; a look of only your own clothes keeps its main piece). Direction chips: more casual / polished / minimal / feminine / edgy / like me. An optional note.
+  2. **Suggestion.** An AI stylist answers in a sentence ("Got it. I'll keep the brown jacket…") and a list of swaps with thumbnails. Nothing is made yet: the shopper approves with "Make this look" or goes back with "Change something".
+  3. **Make.** The usual render (`/api/style`), so it counts as one of the daily looks.
+  4. **Before / After** with what was kept, swapped, taken off, and the direction. Actions: This is better / Try one more / Change something else. "Try one more" avoids every combination already shown, including the one it started from.
+- **Why the stylist sees photos, not tags:** I had planned a one-time tagging pass (color, formality, vibe) saved with each piece. Claude Haiku 5.5 on the AI Gateway costs ~$0.10 per million input tokens, so showing it ~30 small photos on each try costs a few hundredths of a cent. That removes the tagging step, stale tags, a data migration and the tags syncing. Revisit if the closet grows large or quality needs a stronger model (`PLANNER_MODEL`, e.g. `anthropic/claude-sonnet-5.5`).
+- **AI Gateway, not a provider SDK:** a plain `"anthropic/claude-haiku-5.5"` model id through the AI SDK (`generateText` with a structured `Output`). On Vercel the Gateway authenticates with the deployment's OIDC token; locally, `AI_GATEWAY_API_KEY`.
+- **The model never gets the last word.** `/api/plan-look` checks everything it returns:
+  - only ids we sent; the model can't invent a piece
+  - kept pieces stay, and a kept piece's kind is never changed
+  - one piece per kind, and no dress with a top or bottom
+  - at least one piece chosen; and the result must differ from the current look and from earlier suggestions
+  - a bad answer is sent back once with the reason; after that, a friendly refusal
+  - titles from store pages are made plain before they reach a prompt; the note is capped and cleaned, and treated as data
+  - the extension also rejects a plan if a piece was deleted or changed kind while it was thinking
+- **Limits:** its own small allowance (30 suggestions a day each, 500 a day overall, `USER_DAILY_PLANS` / `DAILY_PLAN_LIMIT`), since a suggestion costs a fraction of a cent; the render that follows counts as a look as before. The pause switch (`npm run pause`) stops suggestions too.
+- **Privacy:** small copies (320 px) of the photos in the look and of candidate closet pieces, with names and the note, go to our server and the AI model. Nothing is stored. The privacy policy, store disclosure and listing say so.
+- **Not done:** wardrobe metadata beyond category/title; a "show an example" mode with pieces you don't own. The core flow stays wardrobe-grounded.

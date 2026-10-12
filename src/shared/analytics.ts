@@ -29,7 +29,13 @@ export type EventName =
   | 'original_page_opened'
   | 'look_saved'
   | 'try_another_look'
-  | 'category_edited';
+  | 'category_edited'
+  | 'different_look_opened'
+  | 'different_look_planned'
+  | 'different_look_made'
+  | 'different_look_accepted'
+  | 'different_look_more'
+  | 'different_look_failed';
 
 export type EventProps = Record<string, string | number | boolean | string[]>;
 export interface QueuedEvent {

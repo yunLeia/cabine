@@ -5,6 +5,7 @@ import { chainOrder, pruneOutfit } from '../shared/outfit';
 import { getUserId } from '../shared/identity';
 import { sessionToken } from './auth';
 import { getImage, pruneRenderCache, putImage } from '../shared/images';
+import type { LookPlan } from '../shared/different';
 import type { Garment, Outfit } from '../shared/types';
 
 // "See the outfit" and photo clean-up: calls to the proxy (server/api/[action].ts). The
@@ -39,16 +40,16 @@ const MAX_SIDE = 1280; // plenty for FASHN's 1K output, keeps each request well 
 
 // JPEG on white: transparent closet PNGs would otherwise turn black, and FASHN
 // only accepts JPEG/PNG/WebP (captured images can be AVIF).
-async function toJpegDataUri(blob: Blob): Promise<string> {
+async function toJpegDataUri(blob: Blob, maxSide = MAX_SIDE, quality = 0.88): Promise<string> {
   const bitmap = await createImageBitmap(blob);
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale));
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
-  const jpeg = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.88 });
+  const jpeg = await canvas.convertToBlob({ type: 'image/jpeg', quality });
   return blobToDataUri(jpeg);
 }
 
@@ -148,11 +149,54 @@ async function send(route: string, body: unknown, timeoutMs?: number): Promise<R
 }
 
 // Plain JSON routes (upload sessions and the phone inbox).
-export async function postJson<T>(route: string, body: unknown): Promise<T> {
-  const res = await send(route, body);
+export async function postJson<T>(route: string, body: unknown, timeoutMs?: number): Promise<T> {
+  const res = await send(route, body, timeoutMs);
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new RenderError(res.status === 410 ? 'rejected' : 'render_failed', data.error ?? `The server couldn't do this (${res.status}).`);
   return data;
+}
+
+// ---- Try a Different Look (D36) ---------------------------------------------------
+// The stylist on the server only sees small photos (a few KB each) of the pieces
+// that matter: the ones kept, the rest of the current look, and closet pieces it
+// may swap in. It answers with ids from that list; nothing is generated here.
+
+export interface PlanRequest {
+  keep: Garment[];
+  current: Garment[];
+  candidates: Garment[];
+  vibes: string[];
+  note: string;
+  favorites: string[];
+  avoid: string[][];
+}
+
+const THUMB_SIDE = 320;
+
+async function planPiece(g: Garment) {
+  // My Closet shows the cleaned-up photo when there is one; that's what the shopper sees.
+  const blob = (g.location === 'closet' && g.cleanImageId ? await getImage(g.cleanImageId) : undefined) ?? (await getImage(g.imageId));
+  if (!blob) return null;
+  return { id: g.id, category: g.category, title: usefulTitle(g.title), image: await toJpegDataUri(blob, THUMB_SIDE, 0.7) };
+}
+
+export async function requestPlan(r: PlanRequest): Promise<LookPlan> {
+  const [keep, current, candidates] = await Promise.all([r.keep, r.current, r.candidates].map((list) => Promise.all(list.map(planPiece))));
+  if (keep.includes(null)) throw new RenderError('rejected', 'A photo in this look is missing.');
+  const plan = await postJson<LookPlan>(
+    'plan-look',
+    {
+      keep,
+      current: current.filter(Boolean),
+      candidates: candidates.filter(Boolean), // a missing photo just means that piece isn't offered
+      vibes: r.vibes,
+      note: r.note,
+      favorites: r.favorites,
+      avoid: r.avoid,
+    },
+    60_000,
+  );
+  return plan;
 }
 
 // Both routes answer with newline-delimited JSON: a plan right away, then the result.

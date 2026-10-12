@@ -24,10 +24,10 @@
     <main>
       <div class="brand"><img src="/brand/wordmark.png" alt="Cabine" height="24" /></div>
       <h1>Privacy</h1>
-      <p class="muted">Effective October 8, 2026</p>
+      <p class="muted">Effective October 13, 2026</p>
 
       <div class="summary">
-        <p><strong>In short:</strong> signing in is optional. Without an account, your closet stays in your browser. If you sign in, My Closet and your Saved Looks are also kept in your account so they're there on any computer, until you delete them or the account. Photos also leave your computer when you ask Cabine to show an outfit or when a photo is cleaned up; those results are deleted from our server after 30 days. Usage statistics never include photos, product names or page addresses.</p>
+        <p><strong>In short:</strong> signing in is optional. Without an account, your closet stays in your browser. If you sign in, My Closet and your Saved Looks are also kept in your account so they're there on any computer, until you delete them or the account. Photos also leave your computer when you ask Cabine to show an outfit, to suggest a different look, or when a photo is cleaned up; those results are deleted from our server after 30 days. Usage statistics never include photos, product names or page addresses.</p>
       </div>
 
       <h2>What stays on your computer</h2>
@@ -44,6 +44,7 @@
       <h2>What is sent, and when</h2>
       <ul>
         <li><strong>When you tap "See the outfit"</strong>, the photos of the pieces in that look are sent to our server with their category (top, bottom…) and product name. The server sends them to FASHN, the image service that draws the outfit.</li>
+        <li><strong>When you tap "Try a Different Look"</strong>, small copies of the photos in your current look and of closet pieces that could be swapped in are sent to our server, with their category and name and the note you type. Our server passes them to an AI model (Claude, from Anthropic, through Vercel's AI Gateway), which suggests another combination from those pieces. We don't keep them: the suggestion comes back and nothing is stored.</li>
         <li><strong>When a photo is cleaned up</strong> (automatically when you upload a piece or move a store item to My Closet), that one photo, its category and name are sent the same way.</li>
         <li><strong>When you add clothes from your phone</strong>, the photos you choose are uploaded to a temporary inbox on our server and copied into your closet on your computer. Each photo is deleted from the inbox as soon as your computer has it, and anything left behind is deleted a day after the QR code expires. If you're signed in, the piece is then kept in your account like the rest of My Closet.</li>
         <li><strong>When you right-click "Take it to Cabine"</strong> on a store, the extension downloads that product image directly from the store into your browser. Nothing is sent to us at that moment.</li>
@@ -71,7 +72,7 @@
       <p>No name, location or browsing history, and no email unless you sign in (then Clerk holds it). Cabine doesn't read the pages you visit. It only acts on an image when you right-click it and choose "Take it to Cabine".</p>
 
       <h2>Where it runs</h2>
-      <p>Our server runs on Vercel. Images and synced closets are stored privately in Vercel Blob, and usage statistics in a Neon Postgres database. Sign-in is run by Clerk. Like any web host, Vercel sees the IP address of each request; Cabine doesn't store it.</p>
+      <p>Our server runs on Vercel. Images and synced closets are stored privately in Vercel Blob, and usage statistics in a Neon Postgres database. Sign-in is run by Clerk. Look suggestions are made by Anthropic's Claude model, reached through Vercel's AI Gateway. Like any web host, Vercel sees the IP address of each request; Cabine doesn't store it.</p>
 
       <h2>Your choices</h2>
       <ul>

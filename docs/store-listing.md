@@ -20,11 +20,13 @@ A draft. Edit freely; keep the claims in line with `server/public/privacy.html`.
 >
 > **See them together.** Pick a store piece and a few of your own. Cabine dresses a mannequin in the whole look, so you can judge it before you buy.
 >
+> **Try a Different Look.** Not feeling the first result? Keep the piece you like and ask for another direction, more casual, more polished, more like you. Cabine's stylist picks new combinations from clothes you own, tells you what it will change, and shows before and after.
+>
 > **Save the looks you like** and come back to them. Open the original product page in one tap.
 >
 > **Optional account.** Sign in with email or Google to keep My Closet and your Saved Looks on every computer. Without an account, everything stays in your browser.
 >
-> Privacy: photos are sent only to make a look or clean up a photo, and those results are deleted after 30 days. No ads, no trackers, and your data is never sold. Full policy: https://cabine-server.vercel.app/privacy
+> Privacy: photos are sent only to make a look, suggest a different look, or clean up a photo; made looks and cleaned photos are deleted after 30 days, and suggestions aren't stored. No ads, no trackers, and your data is never sold. Full policy: https://cabine-server.vercel.app/privacy
 >
 > Free to use, with a daily limit of looks and photo clean-ups.
 
