@@ -190,7 +190,7 @@ function itemMenu(s: ViewState, g: Garment, a: Actions): HTMLElement {
     { class: 'menu', role: 'menu' },
     store && g.sourcePageUrl && item('Open original page ↗', () => a.openOriginal(g, 'menu')),
     item('Edit category', () => a.editType(g.id)),
-    store && item('I got this — move to My Closet', () => a.addToCloset(g)),
+    store && item('Move to My Closet', () => a.addToCloset(g)),
     !store && g.cleanStatus === 'failed' && item('Try the clean-up again', () => a.cleanUp(g)),
     !store && g.cleanImageId && item('Use original photo', () => a.useOriginal(g)),
     item('Remove', () => a.removeGarment(g), 'danger'),
