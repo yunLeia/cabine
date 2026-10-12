@@ -749,7 +749,9 @@ const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((
 
 // Turn the model's answer into a look we can trust, or say what's wrong with it.
 export function finalizePlan(input: PlanInput, raw: RawPlan): LookPlan {
-  const byId = new Map(input.candidates.map((c) => [c.id, c]));
+  // The rest of the current look may be reused when nothing better exists (no other top
+  // in the closet: keep the current one rather than leave the look without a top).
+  const byId = new Map([...input.candidates, ...input.current].map((c) => [c.id, c]));
   const keptCategories = new Set(input.keep.map((k) => k.category));
   const chosen: { piece: PlanPiece; why: string }[] = [];
   for (const { id, why } of raw.pieces) {
@@ -766,6 +768,11 @@ export function finalizePlan(input: PlanInput, raw: RawPlan): LookPlan {
   for (const [a, b] of EXCLUSIVE) {
     if (kinds.includes(a) && kinds.includes(b)) throw new PlanProblem(`A ${a} can't be worn with a ${b}. Pick one or the other.`);
   }
+  // A look stays complete: if it had a top and bottom (or a dress), or shoes, the new one does too.
+  const before = [...input.keep, ...input.current].map((p) => p.category);
+  const covers = (k: Category[]) => k.includes('dress') || (k.includes('top') && k.includes('bottom'));
+  if (covers(before) && !covers(kinds)) throw new PlanProblem('The new look must still cover the body: a top and a bottom, or a dress. Reuse a current piece if there is nothing better.');
+  if (before.includes('shoes') && !kinds.includes('shoes')) throw new PlanProblem('The current look has shoes, so the new look needs shoes too.');
   const ids = finalPieces.map((p) => p.id);
   if (sameSet(ids, [...input.keep, ...input.current].map((p) => p.id))) throw new PlanProblem('That is the same look as the current one. It must be a different combination.');
   if (input.avoid.some((a) => sameSet(ids, a))) throw new PlanProblem('That combination was already shown. Suggest a different one.');
@@ -781,7 +788,8 @@ export function finalizePlan(input: PlanInput, raw: RawPlan): LookPlan {
     understood: raw.understood.slice(0, 400),
     direction: raw.direction.slice(0, 80),
     outfit,
-    kept: input.keep.map((k) => k.id),
+    // Fixed pieces, plus current ones the stylist chose to leave as they are.
+    kept: [...input.keep.map((k) => k.id), ...chosen.filter((c) => currentByKind.get(c.piece.category) === c.piece.id).map((c) => c.piece.id)],
     changes: changes.filter((c) => c.from !== c.to),
   };
 }
@@ -827,7 +835,8 @@ const PLANNER_SYSTEM = `You are Cabine's stylist. A shopper is deciding whether 
 
 Rules:
 - KEPT pieces are fixed. Never change them. Build around them.
-- You may choose pieces only from the CANDIDATES list, by their exact id. Never invent a piece.
+- You may choose pieces only from the CANDIDATES list and the CURRENT list, by their exact id. Never invent a piece. Use a CURRENT piece only when nothing better exists for that kind (for example there is no other top, so the current top stays); otherwise move away from the current look.
+- Keep the look complete: if the current look has a top and a bottom (or a dress), the new look needs one too; if it has shoes, so does the new look.
 - Choose at most one piece per kind (top, bottom, dress, outerwear, shoes). Never choose a kind that a KEPT piece already covers. A dress is never worn with a top or bottom.
 - The new look must be meaningfully different from the CURRENT look: a different silhouette, formality or texture, not just a slightly different color of the same thing. Match the requested direction.
 - Prefer a complete, wearable look: if the kept pieces and your picks leave out something obvious (shoes, a bottom), add the best candidate if one exists.
@@ -848,7 +857,7 @@ function plannerMessages(input: PlanInput, feedback?: string) {
     }
   };
   group('KEPT pieces (fixed):', input.keep);
-  group('CURRENT look, the rest of it (move away from this):', input.current);
+  group('CURRENT look, the rest of it (move away from this; reuse a piece only if nothing better exists):', input.current);
   group('CANDIDATES (choose only from these, by id):', input.candidates);
   const direction = input.vibes.length ? input.vibes.map((v) => VIBES[v]).join('; ') : 'a different but wearable direction';
   parts.push({
@@ -859,7 +868,7 @@ function plannerMessages(input: PlanInput, feedback?: string) {
       (input.favorites.length ? `Favorites (candidate ids): ${input.favorites.join(', ')}\n` : '') +
       (input.avoid.length ? `Already shown, do not repeat: ${input.avoid.map((a) => `[${a.join(', ')}]`).join(' ')}\n` : '') +
       (feedback ? `Your last answer was rejected: ${feedback}\n` : '') +
-      'Answer with the pieces to add (ids from CANDIDATES), your "understood" sentence, the "direction" phrase, and a "why" for each piece.',
+      'Answer with every piece to wear besides the KEPT ones (ids from CANDIDATES or CURRENT), your "understood" sentence, the "direction" phrase, and a "why" for each piece.',
   });
   return [{ role: 'user' as const, content: parts }];
 }

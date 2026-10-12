@@ -724,6 +724,51 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(calls, 2, 'paused: the model isn\'t called');
   }],
 
+  ['different look: the new look stays complete, and a current piece can be reused when nothing else fits', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    const request = {
+      keep: [piece('jacket', 'outerwear')],
+      current: [piece('trousers', 'bottom'), piece('tee', 'top'), piece('boots', 'shoes')],
+      candidates: [piece('jeans', 'bottom'), piece('sneakers', 'shoes')], // no other top in the closet
+      vibes: ['casual'],
+    };
+    const asked: (string | undefined)[] = [];
+    const answers: { id: string; why: string }[][] = [
+      [{ id: 'jeans', why: 'denim' }, { id: 'sneakers', why: 'easy' }], // drops the top: not complete
+      [{ id: 'jeans', why: 'denim' }, { id: 'tee', why: 'nothing else' }], // drops the shoes
+      [{ id: 'jeans', why: 'denim' }, { id: 'tee', why: 'nothing else' }, { id: 'sneakers', why: 'easy' }],
+    ];
+    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { understood: 'x', direction: 'x', pieces: answers[Math.min(asked.length - 1, 2)] }) };
+    const first = await call(deps, request, 'secret', 'plan-look');
+    assert.equal(first.status, 400, 'two incomplete answers in a row: given up');
+    assert.match(asked[0] ?? 'none', /none/);
+    assert.match(asked[1]!, /top and a bottom/, 'the first answer was refused for leaving no top');
+
+    asked.length = 0;
+    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { understood: 'x', direction: 'x', pieces: answers[2] }) };
+    const ok = await call(deps, request, 'secret', 'plan-look');
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body.outfit, { outerwear: 'jacket', bottom: 'jeans', top: 'tee', shoes: 'sneakers' });
+    assert.deepEqual(ok.body.kept, ['jacket', 'tee'], 'the reused top is shown as staying');
+    assert.deepEqual(ok.body.changes.map((c: { category: string }) => c.category), ['bottom', 'shoes'], 'only real swaps are listed');
+  }],
+
+  ['different look: a dress is a complete swap for a top and bottom', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'gown', why: 'one piece' }, { id: 'boots', why: '' }] }) };
+    const r = await call(deps, {
+      keep: [piece('coat', 'outerwear')],
+      current: [piece('top1', 'top'), piece('pants', 'bottom'), piece('flats', 'shoes')],
+      candidates: [piece('gown', 'dress'), piece('boots', 'shoes')],
+      vibes: [],
+    }, 'secret', 'plan-look');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.outfit, { outerwear: 'coat', dress: 'gown', shoes: 'boots' });
+    assert.deepEqual(r.body.changes.map((c: { category: string; to?: string }) => [c.category, c.to ?? null]).sort(), [['bottom', null], ['dress', 'gown'], ['shoes', 'boots'], ['top', null]]);
+  }],
+
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
     const { deps, recorded } = setup();
     const r = await call(deps, {

@@ -693,3 +693,6 @@ Found during the pre-submission check:
 - **Limits:** its own small allowance (30 suggestions a day each, 500 a day overall, `USER_DAILY_PLANS` / `DAILY_PLAN_LIMIT`), since a suggestion costs a fraction of a cent; the render that follows counts as a look as before. The pause switch (`npm run pause`) stops suggestions too.
 - **Privacy:** small copies (320 px) of the photos in the look and of candidate closet pieces, with names and the note, go to our server and the AI model. Nothing is stored. The privacy policy, store disclosure and listing say so.
 - **Not done:** wardrobe metadata beyond category/title; a "show an example" mode with pieces you don't own. The core flow stays wardrobe-grounded.
+- **Found in the first live test:** with no other top in the closet, the stylist dropped the current top and returned a look with no top. Now:
+  - It may reuse a current piece when nothing better exists; those show under "Keeping".
+  - The server refuses an answer that isn't complete. If the current look had a top and bottom (or a dress), or shoes, the new one needs them too. The model is told why and tries once more.
