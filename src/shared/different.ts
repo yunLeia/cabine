@@ -15,12 +15,14 @@ export const VIBES = [
 ] as const;
 
 export interface LookPlan {
-  understood: string; // what the stylist understood, in a sentence
-  direction: string; // "More casual, more everyday"
+  title: string; // "A more casual take"
+  summary: string; // one or two short sentences about what changed
   outfit: Outfit; // the whole new look
   kept: string[];
   changes: { category: Category; from?: string; to?: string; why?: string }[]; // `to` missing: taken off
 }
+// Either a look, or a short question when the request contradicts itself (nothing is made).
+export type PlanResult = LookPlan | { conflict: string };
 
 const MAIN_FIRST: Category[] = ['outerwear', 'dress', 'top', 'bottom', 'shoes'];
 const MAX_CANDIDATES = 24;

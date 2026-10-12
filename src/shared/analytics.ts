@@ -33,8 +33,8 @@ export type EventName =
   | 'different_look_opened'
   | 'different_look_planned'
   | 'different_look_made'
-  | 'different_look_accepted'
-  | 'different_look_more'
+  | 'different_look_conflict'
+  | 'different_look_feedback'
   | 'different_look_failed';
 
 export type EventProps = Record<string, string | number | boolean | string[]>;

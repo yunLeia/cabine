@@ -53,12 +53,15 @@ const deps: Deps = {
   planner: {
     id: 'local-fake',
     async plan(input, feedback) {
-      const freeKinds = input.current.map((p) => p.category);
-      const pool = input.candidates.filter((c) => !input.avoid.some((a) => a.includes(c.id)) || feedback);
-      const picks = freeKinds.flatMap((kind) => pool.filter((c) => c.category === kind).slice(0, 1));
-      const pieces = (picks.length ? picks : pool.slice(0, 1)).map((c) => ({ id: c.id, why: 'a different feel' }));
+      // Type "conflict" in the note to see the stylist's question instead of a look.
+      if (input.note?.toLowerCase().includes('conflict')) return { title: '', summary: '', conflict: 'You asked for a different jacket, but the jacket is kept. Tap it to Change, or clear the note.', pieces: [] };
+      // For each piece being moved away from, the first unused candidate of its kind; if the
+      // closet has none (no other top), the current piece stays so the look is complete.
+      const unused = input.candidates.filter((c) => feedback || !input.avoid.flat().includes(c.id));
+      const picks = input.current.map((cur) => unused.find((c) => c.category === cur.category) ?? cur);
+      const pieces = picks.map((c) => ({ id: c.id, why: 'a different feel' }));
       const keptName = input.keep[0]?.title ?? 'piece';
-      return { understood: `Got it. I'll keep the ${keptName}${input.vibes.length ? ` and aim for something ${input.vibes.join(' and ')}` : ''}, and try something else from your closet.`, direction: input.vibes.length ? input.vibes.join(', ') : 'A different direction', pieces };
+      return { title: input.vibes.length ? `A ${input.vibes[0]} take` : 'A different take', summary: `Kept your ${keptName} and tried something else from your closet.`, pieces };
     },
   },
 };

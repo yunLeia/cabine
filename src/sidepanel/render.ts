@@ -5,7 +5,7 @@ import { chainOrder, pruneOutfit } from '../shared/outfit';
 import { getUserId } from '../shared/identity';
 import { sessionToken } from './auth';
 import { getImage, pruneRenderCache, putImage } from '../shared/images';
-import type { LookPlan } from '../shared/different';
+import type { PlanResult } from '../shared/different';
 import type { Garment, Outfit } from '../shared/types';
 
 // "See the outfit" and photo clean-up: calls to the proxy (server/api/[action].ts). The
@@ -180,10 +180,10 @@ async function planPiece(g: Garment) {
   return { id: g.id, category: g.category, title: usefulTitle(g.title), image: await toJpegDataUri(blob, THUMB_SIDE, 0.7) };
 }
 
-export async function requestPlan(r: PlanRequest): Promise<LookPlan> {
+export async function requestPlan(r: PlanRequest): Promise<PlanResult> {
   const [keep, current, candidates] = await Promise.all([r.keep, r.current, r.candidates].map((list) => Promise.all(list.map(planPiece))));
   if (keep.includes(null)) throw new RenderError('rejected', 'A photo in this look is missing.');
-  const plan = await postJson<LookPlan>(
+  const plan = await postJson<PlanResult>(
     'plan-look',
     {
       keep,

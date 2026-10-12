@@ -630,7 +630,7 @@ const tests: [string, () => Promise<void>][] = [
       id: 'fake',
       async plan(input) {
         seen.push(input);
-        return { understood: 'Got it.', direction: 'More casual', pieces: [{ id: 'jeans', why: 'relaxed' }, { id: 'sneakers', why: 'easy' }] };
+        return { summary: 'Got it.', title: 'More casual', pieces: [{ id: 'jeans', why: 'relaxed' }, { id: 'sneakers', why: 'easy' }] };
       },
     };
     const piece = (id: string, category: string, title?: string) => ({ id, category, title, image: img(id) });
@@ -644,6 +644,8 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.outfit, { outerwear: 'jacket', bottom: 'jeans', shoes: 'sneakers' });
     assert.deepEqual(r.body.kept, ['jacket']);
+    assert.equal(r.body.title, 'More casual');
+    assert.equal(r.body.summary, 'Got it.');
     assert.deepEqual(r.body.changes, [
       { category: 'bottom', from: 'trousers', to: 'jeans', why: 'relaxed' },
       { category: 'shoes', from: undefined, to: 'sneakers', why: 'easy' },
@@ -663,8 +665,8 @@ const tests: [string, () => Promise<void>][] = [
     };
     const feedback: (string | undefined)[] = [];
     const answers: RawPlan[] = [
-      { understood: 'x', direction: 'x', pieces: [{ id: 'made-up', why: '' }] }, // not a candidate
-      { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: 'ok' }] },
+      { summary: 'x', title: 'x', pieces: [{ id: 'made-up', why: '' }] }, // not a candidate
+      { summary: 'x', title: 'x', pieces: [{ id: 'jeans', why: 'ok' }] },
     ];
     deps.planner = { id: 'fake', plan: async (_i, f) => (feedback.push(f), answers[feedback.length - 1]) };
     assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
@@ -675,7 +677,7 @@ const tests: [string, () => Promise<void>][] = [
       [{ id: 'jeans', why: '' }, { id: 'jeans', why: '' }], // two of one kind
       [], // nothing new: the same look
     ]) {
-      deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: bad }) };
+      deps.planner = { id: 'fake', plan: async () => ({ summary: 'x', title: 'x', pieces: bad }) };
       const r = await call(deps, request, 'secret', 'plan-look');
       assert.equal(r.status, 400);
       assert.match(r.body.error, /couldn’t find a different combination/);
@@ -692,16 +694,16 @@ const tests: [string, () => Promise<void>][] = [
       vibes: [],
       avoid: [['top1', 'jeans']],
     };
-    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
+    deps.planner = { id: 'fake', plan: async () => ({ summary: 'x', title: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
     assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 400, 'jeans was already shown');
-    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'skirt', why: '' }] }) };
+    deps.planner = { id: 'fake', plan: async () => ({ summary: 'x', title: 'x', pieces: [{ id: 'skirt', why: '' }] }) };
     assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
   }],
 
   ['different look: checks the request, counts against a daily allowance, and honors the pause', async () => {
     const { deps } = setup();
     let calls = 0;
-    deps.planner = { id: 'fake', plan: async () => (calls++, { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
+    deps.planner = { id: 'fake', plan: async () => (calls++, { summary: 'x', title: 'x', pieces: [{ id: 'jeans', why: '' }] }) };
     const piece = (id: string, category: string) => ({ id, category, image: img(id) });
     const ok = { keep: [piece('top1', 'top')], current: [], candidates: [piece('jeans', 'bottom')], vibes: ['casual'] };
     assert.equal((await call(deps, ok, null, 'plan-look')).status, 401, 'needs the client key');
@@ -740,14 +742,14 @@ const tests: [string, () => Promise<void>][] = [
       [{ id: 'jeans', why: 'denim' }, { id: 'tee', why: 'nothing else' }], // drops the shoes
       [{ id: 'jeans', why: 'denim' }, { id: 'tee', why: 'nothing else' }, { id: 'sneakers', why: 'easy' }],
     ];
-    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { understood: 'x', direction: 'x', pieces: answers[Math.min(asked.length - 1, 2)] }) };
+    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { summary: 'x', title: 'x', pieces: answers[Math.min(asked.length - 1, 2)] }) };
     const first = await call(deps, request, 'secret', 'plan-look');
     assert.equal(first.status, 400, 'two incomplete answers in a row: given up');
     assert.match(asked[0] ?? 'none', /none/);
     assert.match(asked[1]!, /top and a bottom/, 'the first answer was refused for leaving no top');
 
     asked.length = 0;
-    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { understood: 'x', direction: 'x', pieces: answers[2] }) };
+    deps.planner = { id: 'fake', plan: async (_i, f) => (asked.push(f), { summary: 'x', title: 'x', pieces: answers[2] }) };
     const ok = await call(deps, request, 'secret', 'plan-look');
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.body.outfit, { outerwear: 'jacket', bottom: 'jeans', top: 'tee', shoes: 'sneakers' });
@@ -758,7 +760,7 @@ const tests: [string, () => Promise<void>][] = [
   ['different look: a dress is a complete swap for a top and bottom', async () => {
     const { deps } = setup();
     const piece = (id: string, category: string) => ({ id, category, image: img(id) });
-    deps.planner = { id: 'fake', plan: async () => ({ understood: 'x', direction: 'x', pieces: [{ id: 'gown', why: 'one piece' }, { id: 'boots', why: '' }] }) };
+    deps.planner = { id: 'fake', plan: async () => ({ summary: 'x', title: 'x', pieces: [{ id: 'gown', why: 'one piece' }, { id: 'boots', why: '' }] }) };
     const r = await call(deps, {
       keep: [piece('coat', 'outerwear')],
       current: [piece('top1', 'top'), piece('pants', 'bottom'), piece('flats', 'shoes')],
@@ -779,7 +781,7 @@ const tests: [string, () => Promise<void>][] = [
       id: 'fake',
       plan: async () => {
         if (calls++ === 0) throw new PlanProblem('You gave no usable answer.');
-        return { understood: 'x', direction: 'x', pieces: [{ id: 'jeans', why: '' }] };
+        return { summary: 'x', title: 'x', pieces: [{ id: 'jeans', why: '' }] };
       },
     };
     assert.equal((await call(deps, request, 'secret', 'plan-look')).status, 200);
@@ -794,7 +796,7 @@ const tests: [string, () => Promise<void>][] = [
     const { deps } = setup();
     const piece = (id: string, category: string) => ({ id, category, image: img(id) });
     const feedback: (string | undefined)[] = [];
-    deps.planner = { id: 'fake', plan: async (_i, f) => (feedback.push(f), { understood: 'x', direction: 'x', pieces: [{ id: feedback.length === 1 ? 'jeans' : 'cream', why: '' }] }) };
+    deps.planner = { id: 'fake', plan: async (_i, f) => (feedback.push(f), { summary: 'x', title: 'x', pieces: [{ id: feedback.length === 1 ? 'jeans' : 'cream', why: '' }] }) };
     const r = await call(deps, {
       keep: [piece('top1', 'top')],
       current: [piece('pants', 'bottom')],
@@ -806,6 +808,22 @@ const tests: [string, () => Promise<void>][] = [
     assert.match(feedback[1]!, /already shown/);
     assert.match(feedback[1]!, /cream/, 'it names a piece that has not been in any look');
     assert.ok(!/jeans/.test(feedback[1]!.split('if you can:')[1]), 'and not the one already used');
+  }],
+
+  ['different look: a contradicting request is asked about, not generated', async () => {
+    const { deps } = setup();
+    const piece = (id: string, category: string) => ({ id, category, image: img(id) });
+    let calls = 0;
+    deps.planner = {
+      id: 'fake',
+      plan: async () => (calls++, { title: '', summary: '', conflict: ' You asked for a different jacket but the jacket is kept. Tap it to Change, or drop the note. ', pieces: [] }),
+    };
+    const r = await call(deps, {
+      keep: [piece('jacket', 'outerwear')], current: [piece('pants', 'bottom')], candidates: [piece('jeans', 'bottom')], vibes: [], note: 'a different jacket please',
+    }, 'secret', 'plan-look');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body, { conflict: 'You asked for a different jacket but the jacket is kept. Tap it to Change, or drop the note.' });
+    assert.equal(calls, 1, 'no second try: a question is an answer');
   }],
 
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {

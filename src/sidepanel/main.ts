@@ -4,7 +4,7 @@ import '@fontsource-variable/inter';
 import { domainOf } from '../shared/analytics';
 import { deleteImage, pruneRenderCache, putImage } from '../shared/images';
 import { inferCategory } from '../shared/infer';
-import { defaultKeep, favoriteIds, pickCandidates, usablePlan } from '../shared/different';
+import { defaultKeep, favoriteIds, pickCandidates, usablePlan, type LookPlan } from '../shared/different';
 import { chainOrder, pruneOutfit, removeFromOutfit, toggleInOutfit } from '../shared/outfit';
 import { KEYS, addGarments, loadState, removeGarment, setDraft, setOutfit, setSavedLooks, updateGarment, updateGarments } from '../shared/store';
 import { isSaved, type Category, type Draft, type Garment } from '../shared/types';
@@ -122,14 +122,24 @@ const actions: Actions = {
     }
   },
 
-  // ---- Try a Different Look (D36): keep some pieces, see another way to wear them ----
+  // ---- Try a Different Look (D36, D37): keep some pieces, generate another way to wear them ----
 
   openDifferent() {
     const worn = wornPieces(state);
+    const before = state.different?.step === 'compare' ? state.different : null;
+    const wornIds = new Set(worn.map((g) => g.id));
     endDifferent();
-    // The look you start from counts as already tried, so a suggestion never leads back to it.
-    state.different = { step: 'ask', keep: defaultKeep(worn), vibes: [], note: '', tried: [worn.map((g) => g.id)] };
-    void trackPanel('different_look_opened', { pieces: worn.length });
+    // Try Another Look starts from the last choices (what to keep, direction, note) and
+    // never leads back to a look already made; the look you start from counts as made.
+    const keep = before?.keep.filter((id) => wornIds.has(id));
+    state.different = {
+      step: 'ask',
+      keep: keep?.length ? keep : defaultKeep(worn),
+      vibes: before?.vibes ?? [],
+      note: before?.note ?? '',
+      tried: before ? before.tried : [worn.map((g) => g.id)],
+    };
+    void trackPanel('different_look_opened', { pieces: worn.length, again: !!before });
     render();
   },
 
@@ -142,6 +152,7 @@ const actions: Actions = {
     const d = state.different;
     if (!d) return;
     d.keep = d.keep.includes(id) ? d.keep.filter((x) => x !== id) : [...d.keep, id];
+    d.conflict = undefined;
     render();
   },
 
@@ -156,21 +167,32 @@ const actions: Actions = {
     if (state.different) state.different.note = text; // no redraw: the box keeps focus while typing
   },
 
-  // Ask the stylist. Nothing is made yet: its answer comes back as a sentence and a list of swaps to approve.
-  async planDifferent() {
+  // One tap: the stylist picks pieces from the closet (stage 1), then exactly those
+  // garments are rendered the usual way (stage 2, it counts as a look). If the request
+  // contradicts itself, it asks first and makes nothing.
+  async generateDifferent() {
     const d = state.different;
     if (!d) return;
     const run = ++differentRun;
+    const stale = () => run !== differentRun || state.different !== d;
     const worn = wornPieces(state);
     const favorites = d.vibes.includes('like-me') ? favoriteIds(state.savedLooks, state.byId) : [];
     const candidates = pickCandidates(state.garments, worn, d.keep, favorites);
+    const comeBack = (message: string) => {
+      d.step = 'ask';
+      d.plan = undefined;
+      d.error = message;
+      render();
+    };
     d.step = 'planning';
     d.error = undefined;
+    d.conflict = undefined;
     render();
     const started = Date.now();
-    const stale = () => run !== differentRun || state.different !== d;
+
+    let plan: LookPlan;
     try {
-      const plan = await requestPlan({
+      const result = await requestPlan({
         keep: worn.filter((g) => d.keep.includes(g.id)),
         current: worn.filter((g) => !d.keep.includes(g.id)),
         candidates,
@@ -180,34 +202,32 @@ const actions: Actions = {
         avoid: d.tried,
       });
       if (stale()) return;
-      if (!usablePlan(plan, state.byId)) throw new RenderError('rejected', 'Your closet changed while Cabine was thinking. Please try again.');
-      d.plan = plan;
-      d.tried = [...d.tried, Object.values(plan.outfit).filter((id): id is string => !!id)].slice(-5);
-      d.step = 'confirm';
-      void trackPanel('different_look_planned', { seconds: (Date.now() - started) / 1000, vibes: d.vibes, kept: d.keep.length, candidates: candidates.length });
+      if ('conflict' in result) {
+        void trackPanel('different_look_conflict', { vibes: d.vibes });
+        d.step = 'ask';
+        d.conflict = result.conflict;
+        return render();
+      }
+      if (!usablePlan(result, state.byId)) throw new RenderError('rejected', 'Your closet changed while Cabine was thinking. Please try again.');
+      plan = result;
     } catch (err) {
       if (stale()) return;
       if (!(err instanceof RenderError)) console.error('[cabine] plan failed', err);
-      d.step = 'ask';
-      d.plan = undefined;
-      d.error = err instanceof RenderError ? err.message : 'Something went wrong. Please try again.';
-      void trackPanel('different_look_failed', { code: err instanceof RenderError ? err.code : 'unexpected' });
+      void trackPanel('different_look_failed', { code: err instanceof RenderError ? err.code : 'unexpected', stage: 'plan' });
+      return comeBack(err instanceof RenderError ? err.message : 'Something went wrong. Please try again.');
     }
-    render();
-  },
+    void trackPanel('different_look_planned', { seconds: (Date.now() - started) / 1000, vibes: d.vibes, kept: d.keep.length, candidates: candidates.length });
 
-  // The shopper approved the swaps: make the new look the usual way (it counts as a look).
-  async makeDifferent() {
-    const d = state.different;
-    const plan = d?.plan;
-    if (!d || !plan) return;
-    const run = ++differentRun;
-    const key = state.lookKey;
-    const before = key ? await getSavedRender(key) : undefined;
+    // Stage 2: render the chosen garments. The look before is kept for Before / After.
+    const previousOutfit = { ...state.outfit };
+    const previousKey = state.lookKey;
+    const before = previousKey ? await getSavedRender(previousKey) : undefined;
+    if (stale()) return;
     if (d.previous?.imageUrl) URL.revokeObjectURL(d.previous.imageUrl);
-    d.previous = { key: key ?? '', outfit: { ...state.outfit }, imageUrl: before ? URL.createObjectURL(before) : undefined };
+    d.previous = { key: previousKey ?? '', outfit: previousOutfit, imageUrl: before ? URL.createObjectURL(before) : undefined };
+    d.plan = plan;
+    d.feedback = undefined;
     d.step = 'making';
-    d.error = undefined;
     void trackPanel('different_look_made', { vibes: d.vibes, swapped: plan.changes.length });
     state.outfit = plan.outfit;
     state.cleared = false;
@@ -215,35 +235,29 @@ const actions: Actions = {
     void setOutfit(plan.outfit);
     render();
     await actions.seeTogether();
-    if (run !== differentRun || state.different !== d) return;
+    if (stale()) return;
     if (state.render?.key === state.lookKey && state.render.status === 'done') {
+      d.tried = [...d.tried, Object.values(plan.outfit).filter((id): id is string => !!id)].slice(-8);
       d.step = 'compare';
-    } else {
-      // It couldn't be made (a limit, offline): back to the suggestion, with the reason.
-      d.error = state.render?.error ?? 'Couldn’t make this look. Please try again.';
-      d.step = 'confirm';
-      setRender(null);
-      return;
+      return render();
     }
-    render();
-  },
-
-  tryOneMore() {
-    void trackPanel('different_look_more', {});
-    void actions.planDifferent();
-  },
-
-  changeSomethingElse() {
-    const d = state.different;
-    if (!d) return;
+    // It couldn't be made (a limit, offline): back to the sheet with the reason, and the look you had.
+    const reason = state.render?.error ?? 'Couldn’t make this look. Please try again.';
+    d.plan = undefined;
     d.step = 'ask';
-    d.error = undefined;
-    render();
+    d.error = reason;
+    state.outfit = previousOutfit;
+    state.lookKey = previousKey;
+    void setOutfit(previousOutfit);
+    setRender(null);
+    void trackPanel('different_look_failed', { code: 'render', stage: 'render' });
   },
 
-  acceptDifferent() {
-    void trackPanel('different_look_accepted', { vibes: state.different?.vibes ?? [] });
-    endDifferent();
+  answerDifferent(closer) {
+    const d = state.different;
+    if (!d || d.feedback !== undefined) return;
+    d.feedback = closer;
+    void trackPanel('different_look_feedback', { closer, vibes: d.vibes, swapped: d.plan?.changes.length ?? 0 });
     render();
   },
 

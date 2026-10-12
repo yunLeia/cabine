@@ -697,3 +697,21 @@ Found during the pre-submission check:
   - It may reuse a current piece when nothing better exists; those show under "Keeping".
   - The server refuses an answer that isn't complete. If the current look had a top and bottom (or a dress), or shoes, the new one needs them too. The model is told why and tries once more.
 - **Second live-test finding:** "Try one more" returned a 500. Haiku 5.5 reasons before it answers, and my 700-token cap ran out before it wrote any answer (`No output generated`). Now `reasoning: 'low'` and a 3,000-token budget (still well under a cent), and "no usable answer" is retried once like any other bad answer instead of failing.
+
+## D37. Try a Different Look: three screens, no approval step
+
+- **Why:** the first version had eight states: ask, planning, a suggestion screen with Keeping / Swapping / Adding cards and "Make this look", making, then a Before / After with the same cards and three buttons. The product's value is the new image, not a conversation with the AI. Fewer inputs and a faster result matter more, and an approval step makes shoppers read about a look they haven't seen.
+- **Now: Ask → Generate → Result.**
+  1. **Ask** (unchanged): Keep / Change, direction chips, optional note. The button is **Generate new look →**.
+  2. **Generate:** one tap. The stylist picks pieces from the closet, then exactly those garments are rendered (the same two stages as before; only the screen between them is gone).
+  3. **Result:** "Your new look" with Before and After, a short title ("A more casual take") and one or two sentences in the past tense ("Swapped your skinny jeans for relaxed white shorts and added a suede jacket. Your pink top stays."). Two buttons: **Save this look** and **Try Another Look**, which reopens the sheet with the last choices and never leads back to a look already made.
+  4. A small **"Was this closer to what you wanted? Yes / Not really"** under the explanation. A save says the look was liked; this says whether the AI understood the request. It's recorded as an event (`different_look_feedback`, with the directions and how many pieces changed; never the note).
+- **Removed:** the suggestion screen, "Make this look", the Keeping / Swapping / Adding / Direction cards, "This is better", "Try one more", "Change something else".
+- **The server is stricter instead.** The approval step used to catch problems; now `/api/plan-look` guarantees them:
+  - kept pieces stay, and a kept piece's kind is never changed
+  - only closet ids it was sent are used
+  - the look stays complete and differs from the current look and every earlier one
+  - **conflicts:** if the note contradicts what's kept (a different jacket while the jacket is kept), the stylist returns a short question instead of a look. The sheet shows it and nothing is generated or counted as a look. It still uses one of the day's suggestions.
+- **The summary comes from the model, not a template,** with a prompt that allows only changes actually made (a live test once claimed a changed top that stayed). If it's ever wrong, the images beside it still show the truth.
+- **If the render fails after the stylist has chosen** (a limit, offline), the shopper goes back to the sheet with the reason and the look they had; nothing is left half-applied.
+- **Layout:** the two result buttons wrap their labels, since "Try a Different Look" overflowed a narrow side panel.
