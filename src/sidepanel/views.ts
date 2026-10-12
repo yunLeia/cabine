@@ -293,7 +293,7 @@ function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
 // just joined the look plays the drop-in animation, so nothing else seems to reload.
 const placed = new Set<string>();
 function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
-  // On the "Try a Different Look" screen the same boxes choose what to keep: a tap
+  // On the "Restyle" screen the same boxes choose what to keep: a tap
   // flips a piece between Keep and Change.
   const d = s.different;
   if (d && (d.step === 'ask' || d.step === 'planning')) {
@@ -343,7 +343,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   const running = shown && s.render?.status === 'running';
   const saved = s.savedLooks.some((l) => l.key === s.lookKey && isSaved(l));
   const step = s.different?.step;
-  // "Try a Different Look" is a screen of its own: the look preview turns into its
+  // "Restyle" is a screen of its own: the look preview turns into its
   // settings, the piece boxes choose Keep / Change, and the two buttons change.
   const choosing = step === 'ask' || step === 'planning';
   return h(
@@ -351,8 +351,14 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
     { class: 'main-page' },
     h(
       'section',
-      { class: 'look', 'aria-label': choosing ? 'Try a Different Look' : 'Your Look' },
-      h('h2', { class: 'label look-title' }, choosing ? 'Try a Different Look' : 'Your Look'),
+      { class: 'look', 'aria-label': choosing ? 'Restyling' : 'Your Look' },
+      // The same row in both modes (so nothing shifts); on the restyle screen it has a way back to the look.
+      h(
+        'div',
+        { class: 'look-head' },
+        choosing && h('button', { type: 'button', class: 'back-button', 'aria-label': 'Back to your look', onclick: a.closeDifferent }, icon('back'), 'Back'),
+        h('h2', { class: 'label look-title' }, choosing ? 'Restyling' : 'Your Look'),
+      ),
       h('div', { class: 'look-stage' }, choosing ? differentBox(s, a, worn) : lookFrame(s, a, worn), picked(s, a, worn)),
       choosing
         ? differentButtons(s, a, worn)
@@ -365,7 +371,7 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
                 'div',
                 { class: 'result-row' },
                 h('button', { type: 'button', class: 'btn btn-primary', 'aria-pressed': saved, onclick: a.toggleSave }, icon(saved ? 'heartFilled' : 'heart'), saved ? 'Saved' : 'Save this look'),
-                h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.openDifferent }, icon('refresh'), step === 'compare' ? 'Try Another Look' : 'Try a Different Look'),
+                h('button', { type: 'button', class: 'btn btn-secondary', onclick: a.openDifferent }, icon('refresh'), step === 'compare' ? 'Try Another Look' : 'Restyle'),
               ),
             )
           : !running && h('button', { type: 'button', class: 'btn btn-primary btn-block cta', disabled: worn.length === 0, onclick: a.seeTogether }, 'See them together', icon('arrow')),
@@ -374,8 +380,8 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
   );
 }
 
-// ---- Try a Different Look ---------------------------------------------------------
-// The look preview turns into this screen: just "What do you want to change?" with
+// ---- Restyle ("Try a Different Look", D36 / D37) ---------------------------------------
+// The look preview turns into this screen: just "How would you style it differently?" with
 // four directions and an optional note. What to keep is chosen on the piece boxes
 // beside it (a tap flips Keep / Change), and one tap on the button generates it. The
 // new look then becomes the mannequin, with a short comment above the buttons.
@@ -392,9 +398,9 @@ function differentBox(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
     h(
       'div',
       { class: 'dl-body' },
-      h('div', { class: 'dl-ask' }, h('img', { class: 'dl-mark', src: '/brand/monogram.png', alt: '' }), h('p', { class: 'dl-question' }, 'What do you want to change?')),
+      h('div', { class: 'dl-ask' }, h('img', { class: 'dl-mark', src: '/brand/monogram.png', alt: '' }), h('p', { class: 'dl-question' }, 'How would you style it differently?')),
       h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'data-vibe': v.key, 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
-      h('textarea', { class: 'dl-note', rows: 2, maxlength: 200, placeholder: 'e.g. “try with denim”, “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
+      h('textarea', { class: 'dl-note', rows: 3, maxlength: 200, placeholder: 'Or tell Cabine what you have in mind.\ne.g. “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
       d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
       d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
       h('p', { class: 'dl-blocked small muted', hidden: !blocked }, blocked ?? ''),
