@@ -25,6 +25,7 @@ export interface RenderState {
   cached?: boolean;
   imageUrl?: string;
   error?: string;
+  startedAt?: number; // when a running render began: the progress bar fills from here, whatever redraws happen
 }
 
 // "Try a Different Look" (D36, D37): ask → planning (the stylist picks) → making
@@ -232,9 +233,26 @@ const markRevealed = (url: string) => queueMicrotask(() => revealed.add(url));
 
 const MANNEQUIN = '/mannequin.jpg';
 
-// Work in progress, with no numbers: the brand gradient, the one under the selected
-// tab, sliding along a thin track.
-const progressBar = () => h('div', { class: 'progress', 'aria-hidden': 'true' });
+// A progress bar with no numbers: the brand gradient (the one under the selected tab)
+// fills a thin track over about ten seconds, slowing as it nears the end, and waits
+// there until the work is done. The panel is redrawn on every change, so the bar is
+// started "elapsed seconds ago" rather than from zero each time, and never restarts.
+const progressBar = (startedAt: number = Date.now()) =>
+  h('div', { class: 'progress', 'aria-hidden': 'true' }, h('span', { class: 'progress-fill', style: `animation-delay: -${((Date.now() - startedAt) / 1000).toFixed(2)}s` }));
+
+// The one loading picture, for both stages of making a look: the mannequin faded
+// behind the C drawing itself into the hanger, with a line of text. "Looking through
+// your closet…" flows into "Putting it together…" in this same frame; only the text
+// changes, and the bar joins for the second stage.
+const workingMark = h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }); // one element, so its animation carries across redraws
+function workingFrame(title: string, startedAt?: number): HTMLElement {
+  return h(
+    'div',
+    { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
+    h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
+    h('div', { class: 'frame-overlay' }, workingMark, h('p', { class: 'running-title' }, title), startedAt !== undefined && progressBar(startedAt)),
+  );
+}
 
 // The mannequin frame: empty until you ask to see the look, then "Putting it
 // together…", then the result. It keeps the mannequin's proportions so the whole
@@ -242,15 +260,7 @@ const progressBar = () => h('div', { class: 'progress', 'aria-hidden': 'true' })
 function lookFrame(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const r = s.render;
   const current = !!r && r.key === s.lookKey && !s.cleared;
-  if (r?.status === 'running' && current) {
-    return h(
-      'div',
-      { class: 'render-frame running', role: 'status', 'aria-live': 'polite' },
-      h('img', { class: 'render-img mannequin', src: MANNEQUIN, alt: '' }),
-      // The C draws itself into the hanger while we wait (scripts/brand-loading.py).
-      h('div', { class: 'frame-overlay' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Putting it together…'), progressBar()),
-    );
-  }
+  if (r?.status === 'running' && current) return workingFrame('Putting it together…', r.startedAt ?? Date.now());
   if (r?.status === 'error' && current) {
     return h(
       'div',
@@ -299,7 +309,7 @@ function picked(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
           { class: 'picked-piece' },
           h(
             'button',
-            { type: 'button', class: 'pick-toggle', 'aria-pressed': kept, disabled: d.step === 'planning', title: `${name(g)}: tap to ${kept ? 'change' : 'keep'} it`, onclick: () => a.toggleKeep(g.id) },
+            { type: 'button', class: 'pick-toggle', 'data-piece': g.id, 'aria-pressed': kept, disabled: d.step === 'planning', title: `${name(g)}: tap to ${kept ? 'change' : 'keep'} it`, onclick: () => a.toggleKeep(g.id) },
             img(thumbSrc(g), 'picked-img', name(g)),
             h('span', { class: 'pick-state' }, kept ? 'Keep' : 'Change'),
           ),
@@ -372,23 +382,23 @@ export function lookView(s: ViewState, a: Actions): HTMLElement {
 
 function differentBox(s: ViewState, a: Actions, worn: Garment[]): HTMLElement {
   const d = s.different!;
-  if (d.step === 'planning') {
-    return h('div', { class: 'render-frame different-box', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'dl-working' }, h('img', { class: 'loading-mark', src: '/brand/loading.webp', alt: '' }), h('p', { class: 'running-title' }, 'Looking through your closet…'), progressBar()));
-  }
+  // Stage one looks like stage two: the same loading picture, with different words.
+  if (d.step === 'planning') return workingFrame('Looking through your closet…');
   const blocked = nothingToTry(worn, d.keep, pickCandidates(s.garments, worn, d.keep));
+  // Same box as the look preview it replaces (same size, nothing jumps); the content starts at the top.
   return h(
     'div',
     { class: 'render-frame different-box' },
     h(
       'div',
       { class: 'dl-body' },
-      h('p', { class: 'dl-question' }, 'What do you want to change?'),
-      h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
-      h('textarea', { class: 'dl-note', rows: 3, maxlength: 200, placeholder: 'e.g. “try with denim”, “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
+      h('div', { class: 'dl-ask' }, h('img', { class: 'dl-mark', src: '/brand/monogram.png', alt: '' }), h('p', { class: 'dl-question' }, 'What do you want to change?')),
+      h('div', { class: 'chips' }, ...VIBES.map((v) => h('button', { type: 'button', class: 'chip', 'data-vibe': v.key, 'aria-pressed': d.vibes.includes(v.key), onclick: () => a.toggleVibe(v.key) }, v.label))),
+      h('textarea', { class: 'dl-note', rows: 2, maxlength: 200, placeholder: 'e.g. “try with denim”, “want to add more color”', 'aria-label': 'Optional note', oninput: (e: Event) => a.setNote((e.target as HTMLTextAreaElement).value) }, d.note),
       h('p', { class: 'dl-hint small muted' }, 'Tap the pieces on the right to keep or change them.'),
       d.conflict && h('p', { class: 'dl-conflict small', role: 'status' }, d.conflict),
       d.error && h('p', { class: 'dl-error small', role: 'alert' }, d.error),
-      blocked && h('p', { class: 'small muted' }, blocked),
+      h('p', { class: 'dl-blocked small muted', hidden: !blocked }, blocked ?? ''),
     ),
   );
 }
@@ -399,9 +409,37 @@ function differentButtons(s: ViewState, a: Actions, worn: Garment[]): HTMLElemen
   return h(
     'div',
     { class: 'result-row' },
-    h('button', { type: 'button', class: 'btn btn-primary', disabled: blocked, onclick: a.generateDifferent }, 'Generate new look', icon('arrow')),
+    h('button', { type: 'button', class: 'btn btn-primary', 'data-generate': '', disabled: blocked, onclick: a.generateDifferent }, 'Generate new look', icon('arrow')),
     h('button', { type: 'button', class: 'btn btn-secondary', disabled: d.step === 'planning', onclick: a.pickMyself }, 'Pick pieces myself'),
   );
+}
+
+// A tap on a piece box or a direction chip changes the screen in place. Redrawing the
+// whole panel for it made the box flicker (and cost the note its focus), so the few
+// things a tap can change are updated where they are.
+export function syncDifferent(s: ViewState): void {
+  const d = s.different;
+  if (!d) return;
+  for (const chip of document.querySelectorAll<HTMLElement>('.different-box .chip')) chip.setAttribute('aria-pressed', String(d.vibes.includes(chip.dataset.vibe ?? '')));
+  const worn = wornPieces(s);
+  for (const box of document.querySelectorAll<HTMLElement>('.pick-toggle')) {
+    const g = worn.find((x) => x.id === box.dataset.piece);
+    if (!g) continue;
+    const kept = d.keep.includes(g.id);
+    box.setAttribute('aria-pressed', String(kept));
+    box.title = `${name(g)}: tap to ${kept ? 'change' : 'keep'} it`;
+    const state = box.querySelector('.pick-state');
+    if (state) state.textContent = kept ? 'Keep' : 'Change';
+  }
+  const blocked = nothingToTry(worn, d.keep, pickCandidates(s.garments, worn, d.keep));
+  const note = document.querySelector<HTMLElement>('.dl-blocked');
+  if (note) {
+    note.textContent = blocked ?? '';
+    note.hidden = !blocked;
+  }
+  const generate = document.querySelector<HTMLButtonElement>('[data-generate]');
+  if (generate) generate.disabled = !!blocked;
+  document.querySelector('.dl-conflict')?.remove(); // a changed choice answers the question it raised
 }
 
 // A short comment above the buttons: a title, what changed in plain words, one reason, and the quality question.

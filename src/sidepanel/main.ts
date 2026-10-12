@@ -14,7 +14,7 @@ import { deleteAccountData, requestSync, onSyncStatus } from './sync';
 import { account, interceptGoogle, signIn as authSignIn, signInWithGoogle, signOut as authSignOut, startAuth } from './auth';
 import { pullPhoneUploads, startPhoneSession } from './phone';
 import { RenderError, cleanUpPhoto, getSavedRender, lookKey, postJson, requestPlan, styleOutfit } from './render';
-import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, wornPieces, type Actions, type RenderState, type ViewState } from './views';
+import { cabineView, candidateOf, draftView, headerView, lookPickers, lookView, savedView, syncDifferent, wornPieces, type Actions, type RenderState, type ViewState } from './views';
 
 // Stored state (garments, outfit, draft, saved looks) mirrors chrome.storage.local
 // and only changes through storage writes + onChanged. The rest is UI state.
@@ -90,7 +90,7 @@ const actions: Actions = {
     state.cleared = false;
     // Seen this exact look already (e.g. "Try another", then no change): show it again.
     if (state.render?.key === key && state.render.status === 'done') return render();
-    setRender({ key, count: garments.length, status: 'running' });
+    setRender({ key, count: garments.length, status: 'running', startedAt: Date.now() });
     void updateGarments(garments.map((g) => g.id), { lastUsedAt: Date.now() });
     const fromStore = garments.filter((g) => g.location === 'fittingRoom');
     void trackPanel('outfit_render_requested', {
@@ -154,14 +154,14 @@ const actions: Actions = {
     if (!d) return;
     d.keep = d.keep.includes(id) ? d.keep.filter((x) => x !== id) : [...d.keep, id];
     d.conflict = undefined;
-    render();
+    syncDifferent(state); // in place: a redraw would make the box flicker
   },
 
   toggleVibe(key) {
     const d = state.different;
     if (!d) return;
     d.vibes = d.vibes.includes(key) ? d.vibes.filter((x) => x !== key) : [...d.vibes, key];
-    render();
+    syncDifferent(state);
   },
 
   setNote(text) {
@@ -228,8 +228,7 @@ const actions: Actions = {
     state.cleared = false;
     state.lookKey = await lookKey(plan.outfit, state.byId);
     void setOutfit(plan.outfit);
-    render();
-    await actions.seeTogether();
+    await actions.seeTogether(); // draws the working frame itself; an extra redraw here flashed the old look
     if (stale()) return;
     if (state.render?.key === state.lookKey && state.render.status === 'done') {
       d.tried = [...d.tried, Object.values(plan.outfit).filter((id): id is string => !!id)].slice(-8);

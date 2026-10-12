@@ -332,14 +332,15 @@ main { padding: 0 16px; }
 #pickers { scroll-margin-top: 56px; } /* land below the sticky header when "Pick pieces myself" scrolls here */
 
 /* ---- Try a Different Look: the look preview turns into its settings ---- */
-/* Same size as the look preview it replaces, but it grows rather than scrolls if its content is taller (a very narrow panel). */
-.different-box { overflow: visible; max-height: none; animation: fade-in 180ms var(--ease) both; }
-@keyframes fade-in { from { opacity: 0; } }
-.dl-body { min-height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 16px; }
-.dl-question { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+/* The very same box as the look preview (.render-frame), so nothing changes size when it opens. If a
+   very narrow panel can't fit the content, the box scrolls inside itself rather than growing. */
+.different-box { overflow-y: auto; }
+.dl-body { display: flex; flex-direction: column; justify-content: flex-start; gap: 8px; padding: 12px; }
+.dl-ask { display: flex; align-items: center; gap: 8px; }
+.dl-mark { width: 22px; height: auto; flex: none; display: block; }
+.dl-question { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; }
 .dl-body .chips { margin: 0; }
-.dl-hint { margin: 0; }
-.dl-working { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; text-align: center; }
+.dl-hint, .dl-blocked { margin: 0; }
 
 /* The piece boxes choose Keep / Change on that screen. */
 .pick-toggle {
@@ -353,8 +354,16 @@ main { padding: 0 16px; }
 .pick-toggle[aria-pressed='false'] .picked-img { opacity: 0.5; }
 .pick-toggle:disabled { cursor: default; }
 
-/* Work in progress, no numbers: the brand gradient (the one under the selected tab) sliding along a thin track. */
-.progress { position: relative; width: 120px; height: 3px; margin-top: 10px; border-radius: 3px; background: rgba(26, 26, 26, 0.07); overflow: hidden; }
-.progress::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 55%; border-radius: 3px; background: var(--grad); animation: progress-slide 1.7s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
-@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(190%); } }
-@media (prefers-reduced-motion: reduce) { .progress::after { animation: none; width: 100%; opacity: 0.7; } .different-box { animation: none; } }
+/* A progress bar, no numbers: the brand gradient (the one under the selected tab) fills a thin track over about
+   ten seconds, slowing toward the end, and waits there. The delay is set per redraw so it never restarts. */
+.progress { position: relative; width: 150px; height: 3px; margin-top: 10px; border-radius: 3px; background: rgba(26, 26, 26, 0.08); overflow: hidden; }
+.progress-fill {
+  position: absolute; inset: 0; border-radius: 3px; background: var(--grad); transform-origin: left; transform: scaleX(0);
+  animation: progress-fill 40s linear forwards;
+}
+@keyframes progress-fill {
+  0% { transform: scaleX(0); animation-timing-function: cubic-bezier(0.25, 0.6, 0.35, 1); }
+  25% { transform: scaleX(0.9); animation-timing-function: linear; }  /* ~10 s */
+  100% { transform: scaleX(0.97); }
+}
+@media (prefers-reduced-motion: reduce) { .progress-fill { animation: none; transform: scaleX(0.6); } }
