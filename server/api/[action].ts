@@ -107,7 +107,8 @@ export interface Deps {
   extractor: ExtractProvider;
   clientKey: string;
   dailyCreditLimit: number; // across everyone: the global budget
-  userLimits: { looks: number; cleanups: number; plans?: number }; // per person per day
+  // Per person per day. null = no cap for that kind (it's still counted); the global budget below still applies.
+  userLimits: { looks: number | null; cleanups: number | null; plans?: number };
   dailyPlanLimit?: number; // "Try a Different Look" suggestions across everyone
   today?: () => string;
   now?: () => number;
@@ -282,7 +283,7 @@ const today = (deps: Deps) => (deps.today ?? (() => new Date().toISOString().sli
 const userUsagePath = (userId: string, deps: Deps) => `usage/${today(deps)}/users/${sha(`user:${userId}`)}.json`;
 
 async function reserve(kind: Kind, credits: number, userId: string, deps: Deps): Promise<void> {
-  const limit = deps.userLimits[kind];
+  const limit = deps.userLimits[kind]; // null: no per-person cap, only the global budget
   const noun = kind === 'looks' ? 'looks' : 'photo clean-ups';
   await bump(userUsagePath(userId, deps), kind, 1, limit, () => new UserLimitError(`You've used today's ${limit} ${noun}. Try again tomorrow.`), deps);
   try {
@@ -1453,6 +1454,13 @@ async function deleteClerkUser(account: string): Promise<void> {
   await createClerkClient({ secretKey: env('CLERK_SECRET_KEY') }).users.deleteUser(account);
 }
 
+// A per-person daily cap, only when the variable is set to a positive number. Unset (or 0) means
+// no cap; the global budget (DAILY_CREDIT_LIMIT) still stops everyone together.
+const perPersonLimit = (name: string): number | null => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 const productionDeps = (): Deps => ({
   store: blobStore,
   events: neonEvents,
@@ -1461,7 +1469,7 @@ const productionDeps = (): Deps => ({
   extractor: fashnExtractor(() => env('FASHN_API_KEY')),
   clientKey: env('CABINE_CLIENT_KEY'),
   dailyCreditLimit: Number(process.env.DAILY_CREDIT_LIMIT ?? 60),
-  userLimits: { looks: Number(process.env.USER_DAILY_LOOKS ?? 10), cleanups: Number(process.env.USER_DAILY_CLEANUPS ?? 10), plans: Number(process.env.USER_DAILY_PLANS ?? 30) },
+  userLimits: { looks: perPersonLimit('USER_DAILY_LOOKS'), cleanups: perPersonLimit('USER_DAILY_CLEANUPS'), plans: Number(process.env.USER_DAILY_PLANS ?? 30) },
   dailyPlanLimit: Number(process.env.DAILY_PLAN_LIMIT ?? 500),
   planner: gatewayPlanner(),
   verifySession: verifyClerkSession,

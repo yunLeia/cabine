@@ -28,7 +28,7 @@ A draft. Edit freely; keep the claims in line with `server/public/privacy.html`.
 >
 > Privacy: photos are sent only to make a look, suggest a different look, or clean up a photo; made looks and cleaned photos are deleted after 30 days, and suggestions aren't stored. No ads, no trackers, and your data is never sold. Full policy: https://cabine-server.vercel.app/privacy
 >
-> Free to use, with a daily limit of looks and photo clean-ups.
+> Free to use. If Cabine is very busy on a given day, new looks may pause until tomorrow.
 
 ## Images to prepare
 

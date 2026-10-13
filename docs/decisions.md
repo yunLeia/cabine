@@ -761,3 +761,10 @@ Found during the pre-submission check:
 ### The ⋯ menu wording
 
 - **"I got this — move to My Closet" is now "Move to My Closet".** In English "I got this" usually means "I can handle it", not "I bought it", and the long label wrapped to two lines in the narrow menu. The new label says what the action does, like the other items (Open original page, Edit category, Remove), fits on one line, and doesn't claim the piece was bought (it may be a gift, or something already owned).
+
+## D38. No per-person daily cap on looks and clean-ups
+
+- **Changed:** the cap of 10 looks and 10 photo clean-ups per person per day (D22) is removed. `USER_DAILY_LOOKS` and `USER_DAILY_CLEANUPS` now mean "a cap, if set to a positive number"; unset or 0 means no per-person cap. They were set on Vercel Production and have been removed there. A person's usage is still counted per day (for the usage numbers and so a cap can be switched back on by setting the variable); it just no longer stops them.
+- **What still protects spending:** the shared daily budget (`DAILY_CREDIT_LIMIT`, 60 credits by default) is unchanged. When it's spent, everyone gets "Cabine has reached today's limit". A test covers it (no per-person cap, the budget still stops everyone, nothing is made over it).
+- **Tradeoff, accepted:** without a per-person cap, one person (or one runaway script) can use the whole day's budget, and then nobody can make a look until tomorrow. Before, one person could take at most 10 of the 60. Watch the shared budget; raise it deliberately (`DAILY_CREDIT_LIMIT`) if real use needs more, and put a per-person cap back with `USER_DAILY_LOOKS` / `USER_DAILY_CLEANUPS` if one person starts crowding others out.
+- **Not changed:** the Restyle suggestions keep their own small allowance (30 a day each, 500 overall), since they cost a fraction of a cent but are still model calls. The listing and privacy policy now describe a shared limit instead of a per-person one.

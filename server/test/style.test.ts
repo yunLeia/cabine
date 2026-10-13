@@ -838,6 +838,19 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal(shorten('  spaced   out  ', 50), 'spaced out');
   }],
 
+  ['no per-person cap: one person can keep going, and the global budget is still the stop', async () => {
+    const { deps, provider } = setup(4); // 4 credits across everyone
+    deps.userLimits = { looks: null, cleanups: null };
+    for (let i = 0; i < 4; i++) {
+      assert.equal((await call(deps, { items: [item('top', `uncapped-${i}`)] })).last.type, 'result', `look ${i + 1} is not stopped by a per-person cap`);
+    }
+    assert.equal(provider.calls.length, 4);
+    const over = await call(deps, { items: [item('top', 'uncapped-4')] });
+    assert.equal(over.last.code, 'daily_limit', 'the shared budget ends it for everyone, with its own message');
+    assert.equal((await call(deps, { items: [item('top', 'other')] }, 'secret', 'style', OTHER_USER)).last.code, 'daily_limit');
+    assert.equal(provider.calls.length, 4, 'nothing was made over the budget');
+  }],
+
   ['events: known names with small props are recorded under a hashed id; the rest dropped', async () => {
     const { deps, recorded } = setup();
     const r = await call(deps, {
